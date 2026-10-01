@@ -1,5 +1,6 @@
-import AppKit
+import CoreGraphics
 import CoreImage
+import Foundation
 
 /// The six color ranges plus Master, as in Photoshop's Cmd+U.
 nonisolated enum ColorRange: String, CaseIterable, Sendable, Hashable, Codable {
@@ -459,7 +460,7 @@ extension EditorSession {
     }
 
     func beginHueSaturation() {
-        guard hueSaturation == nil, canAdjustColors else { NSSound.beep(); return }
+        guard hueSaturation == nil, canAdjustColors else { Feedback.beep(); return }
         commitTransform()
         if gradientEdit != nil { resolveGradient() }
         guard let document, let layer = activeLayer, let asset = layer.asset else { return }
@@ -552,7 +553,7 @@ extension EditorSession {
     func sampleHueRange(at point: CGPoint) {
         guard let edit = hueSaturation, let mode = hueSampleMode else { return }
         var settings = edit.settings
-        guard settings.range != .master, !settings.colorize, let hue = sampledHue(at: point) else { NSSound.beep(); return }
+        guard settings.range != .master, !settings.colorize, let hue = sampledHue(at: point) else { Feedback.beep(); return }
         switch mode {
         case .replace: settings.band = settings.band.centered(on: hue)
         case .add: settings.band.include(hue)
@@ -565,7 +566,7 @@ extension EditorSession {
     /// saturation (or hue with Command held).
     func beginHueTargeting(at point: CGPoint) -> Bool {
         guard let edit = hueSaturation, hueTargeting, !edit.settings.colorize,
-              let hue = sampledHue(at: point) else { NSSound.beep(); return false }
+              let hue = sampledHue(at: point) else { Feedback.beep(); return false }
         var settings = edit.settings
         let range = ColorRange.colorRanges.max {
             settings.weight(of: $0, hue: hue) < settings.weight(of: $1, hue: hue)

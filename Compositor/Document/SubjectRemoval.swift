@@ -1,6 +1,7 @@
-import AppKit
-import Vision
+import CoreGraphics
 import CoreImage
+import Foundation
+import Vision
 
 nonisolated enum SubjectRemoval {
     enum Failure: LocalizedError {
@@ -133,7 +134,7 @@ extension EditorSession {
             brushError = error.localizedDescription
         case .success(let mask):
             // White where the subject is, so its outline is the selection.
-            guard let traced = MaskTracing.whitePixels(in: mask) else { NSSound.beep(); return }
+            guard let traced = MaskTracing.whitePixels(in: mask) else { Feedback.beep(); return }
             var toDocument = BrushRaster.pixelToDocument(LayerTransform(origin: .zero, size: document.size),
                                                          width: mask.width, height: mask.height)
             guard let outline = traced.copy(using: &toDocument) else { return }

@@ -1,13 +1,26 @@
-import AppKit
-import UniformTypeIdentifiers
+import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
+/// Opens, saves and resizes the project in one tab. What it asks and shows goes through its platform's dialogs
+/// (ProjectController+AppKit on the Mac, ProjectController+UIKit on iPad): panels and sheets on the Mac's window, and
+/// the scene's SwiftUI sheets and file pickers on iPad, where projects save themselves as they change.
 @MainActor
 final class ProjectController {
     let session: EditorSession
+    #if os(macOS)
     weak var window: NSWindow?
+    #else
+    /// The scene the project is shown in, which presents its dialogs.
+    weak var dialogs: SceneDialogs?
+    /// Saves the project a moment after each change (see ProjectController+UIKit).
+    var autosave: Task<Void, Never>?
+    #endif
     weak var workspace: ProjectWorkspace?
-    private var saveGeneration = 0
+    var saveGeneration = 0
     /// Keeps the document in step with its package when something else writes it. See ProjectController+ExternalChanges.
     let externalChanges = ExternalChangeState()
     var canStart: Bool {
@@ -15,7 +28,7 @@ final class ProjectController {
     }
     init(session: EditorSession) { self.session = session }
 
-    private func begin() -> Bool {
+    func begin() -> Bool {
         guard session.canStartProjectOperation else { return false }
         session.cancelCrop()
         session.commitTransform()
@@ -38,43 +51,14 @@ final class ProjectController {
     }
 
     /// The save still writing, if any. Close, quit and replacing the document wait for it.
-    private var writing: Task<Bool, Never>?
+    var writing: Task<Bool, Never>?
     func finishWriting() async { if let writing { _ = await writing.value } }
 
-    func exportPNG() async {
-        guard session.document != nil, begin() else { return }
-        defer { session.isProjectBusy = false }
-        guard let snapshot = session.projectSnapshot() else { return }
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png]
-        panel.canCreateDirectories = true
-        panel.isExtensionHidden = false
-        panel.title = "Export PNG"
-        panel.nameFieldStringValue = (session.projectURL?.deletingPathExtension().lastPathComponent ?? "Untitled") + ".png"
-        let response: NSApplication.ModalResponse
-        if let window { response = await panel.beginSheetModal(for: window) }
-        else { response = await panel.begin() }
-        guard response == .OK, let url = panel.url else { return }
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        do { try await ImageExporter.shared.exportPNG(snapshot, to: url) }
-        catch { await showError("Couldn’t export PNG", error: error) }
-    }
-
     func canvasSize() async {
-        guard let window, let document = session.document, begin() else { return }
+        guard canPresentDialogs, let document = session.document, begin() else { return }
         defer { session.isProjectBusy = false }
-        let options: CanvasSizeOptions? = await withCheckedContinuation { continuation in
-            let sheet = NSWindow()
-            sheet.styleMask = [.titled, .fullSizeContentView]
-            sheet.title = "Canvas Size"
-            sheet.contentViewController = NSHostingController(rootView: CanvasSizeSheet(document: document, session: session) { options in
-                window.endSheet(sheet)
-                sheet.orderOut(nil)
-                sheet.contentViewController = nil
-                continuation.resume(returning: options)
-            })
-            window.beginSheet(sheet)
+        let options: CanvasSizeOptions? = await presentSheet(title: "Canvas Size") { [session] finish in
+            CanvasSizeSheet(document: document, session: session, finish: finish)
         }
         guard let options, let snapshot = session.projectSnapshot() else { return }
         do {
@@ -84,19 +68,10 @@ final class ProjectController {
     }
 
     func imageSize() async {
-        guard let window, let document = session.document, begin() else { return }
+        guard canPresentDialogs, let document = session.document, begin() else { return }
         defer { session.isProjectBusy = false }
-        let options: ImageSizeOptions? = await withCheckedContinuation { continuation in
-            let sheet = NSWindow()
-            sheet.styleMask = [.titled, .fullSizeContentView]
-            sheet.title = "Image Size"
-            sheet.contentViewController = NSHostingController(rootView: ImageSizeSheet(document: document) { options in
-                window.endSheet(sheet)
-                sheet.orderOut(nil)
-                sheet.contentViewController = nil
-                continuation.resume(returning: options)
-            })
-            window.beginSheet(sheet)
+        let options: ImageSizeOptions? = await presentSheet(title: "Image Size") { finish in
+            ImageSizeSheet(document: document, finish: finish)
         }
         guard let options, let snapshot = session.projectSnapshot() else { return }
         do {
@@ -106,20 +81,9 @@ final class ProjectController {
     }
 
     func trim() async {
-        guard let window, session.document != nil, begin() else { return }
+        guard canPresentDialogs, session.document != nil, begin() else { return }
         defer { session.isProjectBusy = false }
-        let options: TrimOptions? = await withCheckedContinuation { continuation in
-            let sheet = NSWindow()
-            sheet.styleMask = [.titled, .fullSizeContentView]
-            sheet.title = "Trim"
-            sheet.contentViewController = NSHostingController(rootView: TrimSheet { options in
-                window.endSheet(sheet)
-                sheet.orderOut(nil)
-                sheet.contentViewController = nil
-                continuation.resume(returning: options)
-            })
-            window.beginSheet(sheet)
-        }
+        let options: TrimOptions? = await presentSheet(title: "Trim") { finish in TrimSheet(finish: finish) }
         guard let options, let snapshot = session.projectSnapshot() else { return }
         do {
             guard let resized = try await ImageTrim.trim(snapshot, options: options) else {
@@ -132,94 +96,40 @@ final class ProjectController {
     /// View > Grid Settings…: changes only how the grid is drawn and snapped to, so nothing is saved or undone. The
     /// grid shows while the sheet is open, changing as it's edited, and goes back to how it was on Cancel.
     func gridSettings() async {
-        guard let window, window.attachedSheet == nil else { return }
+        guard canPresentDialogs, !isPresentingSheet else { return }
         let original = (grid: session.layoutGrid, appearance: session.gridAppearance, shown: session.showsGrid)
         session.showsGrid = true
-        let settings: (LayoutGrid, GridAppearance)? = await withCheckedContinuation { continuation in
-            let sheet = NSWindow()
-            sheet.styleMask = [.titled, .fullSizeContentView]
-            sheet.title = "Grid"
-            sheet.contentViewController = NSHostingController(rootView: GridSettingsSheet(
+        let settings: (LayoutGrid, GridAppearance)? = await presentSheet(title: "Grid") { [session] finish in
+            GridSettingsSheet(
                 session: session, grid: original.grid, appearance: original.appearance,
-                preview: { [session] grid, appearance in
+                preview: { grid, appearance in
                     session.layoutGrid = grid
                     session.gridAppearance = appearance
-                }) { settings in
-                    window.endSheet(sheet)
-                    sheet.orderOut(nil)
-                    sheet.contentViewController = nil
-                    continuation.resume(returning: settings)
-                })
-            window.beginSheet(sheet)
+                }, finish: finish)
         }
         session.showsGrid = original.shown
         session.layoutGrid = settings?.0 ?? original.grid
         session.gridAppearance = settings?.1 ?? original.appearance
     }
 
-    func exportJPEG() async {
-        guard let window, session.document != nil, begin() else { return }
-        defer { session.isProjectBusy = false }
-        guard let snapshot = session.projectSnapshot() else { return }
-        do {
-            let raster = try await ImageExporter.shared.render(snapshot)
-            let data: Data? = await withCheckedContinuation { continuation in
-                let sheet = NSWindow()
-                sheet.styleMask = [.titled, .fullSizeContentView]
-                sheet.title = "Export JPEG"
-                sheet.contentViewController = NSHostingController(rootView: JPEGExportSheet(raster: raster, session: session) { data in
-                    window.endSheet(sheet)
-                    sheet.orderOut(nil)
-                    // Release the hosted view and its closure after dismissal.
-                    sheet.contentViewController = nil
-                    continuation.resume(returning: data)
-                })
-                window.beginSheet(sheet)
-            }
-            guard let data else { return }
-            let panel = NSSavePanel()
-            panel.allowedContentTypes = [.jpeg]
-            panel.canCreateDirectories = true
-            panel.isExtensionHidden = false
-            panel.title = "Export JPEG"
-            panel.nameFieldStringValue = (session.projectURL?.deletingPathExtension().lastPathComponent ?? "Untitled") + ".jpg"
-            guard await panel.beginSheetModal(for: window) == .OK, let url = panel.url else { return }
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            try await ImageExporter.shared.write(data, to: url)
-        } catch { await showError("Couldn’t export JPEG", error: error) }
-    }
-
-    private func saveCurrent(asNew: Bool = false) async -> Bool {
+    func saveCurrent(asNew: Bool = false) async -> Bool {
         guard session.document != nil else { return true }
         guard let prepared = await prepareSave(asNew: asNew) else { return false }
         return await write(prepared.snapshot, to: prepared.destination, revision: prepared.revision)
     }
 
-    /// The document as it is now, and where it goes: asks with the Save panel when it has no file yet (or Save As).
+    /// The document as it is now, and where it goes: asks where to save it when it has no file yet (or Save As).
     private func prepareSave(asNew: Bool) async -> (snapshot: ProjectSnapshot, destination: URL, revision: UUID)? {
         let revision = session.history.currentRevision
         guard let snapshot = session.projectSnapshot() else { return nil }
         var destination = asNew ? nil : session.projectURL
-        if destination == nil {
-            let panel = NSSavePanel()
-            panel.allowedContentTypes = [.compositorProject]
-            panel.canCreateDirectories = true
-            panel.isExtensionHidden = false
-            panel.nameFieldStringValue = session.projectURL?.lastPathComponent ?? "Untitled.comp"
-            panel.title = asNew ? "Save Project As" : "Save Project"
-            let response: NSApplication.ModalResponse
-            if let window { response = await panel.beginSheetModal(for: window) }
-            else { response = await panel.begin() }
-            guard response == .OK, let url = panel.url else { return nil }
-            destination = url
-        }
+        if destination == nil { destination = await chooseProjectDestination(asNew: asNew) }
         guard let destination else { return nil }
         return (snapshot, destination, revision)
     }
 
     /// Writes a captured document in the background. Only that captured version counts as saved.
-    private func write(_ snapshot: ProjectSnapshot, to destination: URL, revision: UUID) async -> Bool {
+    func write(_ snapshot: ProjectSnapshot, to destination: URL, revision: UUID) async -> Bool {
         let task = Task { @MainActor [self] () -> Bool in
             let scoped = destination.startAccessingSecurityScopedResource()
             defer { if scoped { destination.stopAccessingSecurityScopedResource() } }
@@ -253,19 +163,7 @@ final class ProjectController {
         guard begin() else { return false }
         defer { session.isProjectBusy = false }
         var source = suppliedURL
-        if source == nil {
-            let panel = NSOpenPanel()
-            panel.allowedContentTypes = [.compositorProject]
-            panel.allowsMultipleSelection = false
-            panel.canChooseDirectories = false
-            panel.treatsFilePackagesAsDirectories = false
-            panel.title = "Open Project"
-            let response: NSApplication.ModalResponse
-            if let window { response = await panel.beginSheetModal(for: window) }
-            else { response = await panel.begin() }
-            guard response == .OK, let url = panel.url else { return false }
-            source = url
-        }
+        if source == nil { source = await chooseProjectToOpen() }
         guard let source else { return false }
         // A recent project deleted in Finder: name the project, not the manifest inside it the load would miss.
         guard FileManager.default.fileExists(atPath: source.path) else {
@@ -304,54 +202,24 @@ final class ProjectController {
         if proceed { session.clearProject(); stopWatchingProject() }
     }
 
-    func close(_ window: NSWindow) async {
-        if let workspace, let tab = workspace.tabs.first(where: { $0.controller === self }) {
-            await workspace.close(tab.id); return
-        }
-        guard begin() else { return }
-        let proceed = await confirmReplacement()
-        session.isProjectBusy = false
-        if proceed {
-            session.clearProject()
-            stopWatchingProject()
-            window.close()
-        }
-    }
-
     func confirmQuit() async -> Bool {
         guard begin() else { return false }
         defer { session.isProjectBusy = false }
         return await confirmReplacement()
     }
 
-    private func confirmReplacement() async -> Bool {
+    func confirmReplacement() async -> Bool {
         // A save still writing finishes before the project can be closed or replaced, so its file is never cut short.
         await finishWriting()
         guard session.isModified, session.document != nil else { return true }
-        let alert = NSAlert()
-        alert.messageText = "Save changes to \(session.projectURL?.lastPathComponent ?? "Untitled")?"
-        alert.informativeText = "Your changes will be lost if you don’t save them."
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Don’t Save")
-        let response = await show(alert)
-        if response == .alertFirstButtonReturn { return await saveCurrent() }
-        return response == .alertThirdButtonReturn
+        switch await askToSaveChanges() {
+        case .save: return await saveCurrent()
+        case .discard: return true
+        case .cancel: return false
+        }
     }
 
-    private func showError(_ title: String, error: Error) async {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = title
-        alert.informativeText = error.localizedDescription
-        alert.addButton(withTitle: "OK")
-        _ = await show(alert)
-    }
-
-    private func show(_ alert: NSAlert) async -> NSApplication.ModalResponse {
-        if let window { return await alert.beginSheetModal(for: window) }
-        return alert.runModal()
-    }
+    enum SaveChoice { case save, cancel, discard }
 
     private struct Incoming {
         let files: [(URL, Bool)]

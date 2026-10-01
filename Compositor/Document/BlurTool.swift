@@ -1,5 +1,6 @@
-import AppKit
+import CoreGraphics
 import CoreImage
+import Foundation
 
 extension EditorSession {
 

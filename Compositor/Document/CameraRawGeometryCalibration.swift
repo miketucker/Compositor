@@ -1,5 +1,6 @@
-import AppKit
+import CoreGraphics
 import CoreImage
+import Foundation
 
 nonisolated enum CameraRawUprightMode: String, CaseIterable, Sendable {
     case off = "Off"

@@ -5,10 +5,12 @@ import Combine
 
 struct ProjectWorkspaceView: View {
     let applicationDelegate: CompositorApplicationDelegate
+    @Environment(\.openWindow) private var openWindow
     private var workspace: ProjectWorkspace { applicationDelegate.workspace }
     var body: some View {
-        ContentView(session: workspace.current.session, applicationDelegate: applicationDelegate)
+        ContentView(session: workspace.current.session, workspace: workspace)
             .id(workspace.current.id)
+            .onAppear { applicationDelegate.showEditor = { openWindow(id: "editor") } }
             .disabled(workspace.isManaging)
             .psdConversionSheet(workspace.current.session)
             .rawDevelopSheet(workspace.current.session)

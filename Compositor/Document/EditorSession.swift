@@ -187,10 +187,8 @@ final class EditorSession {
     }
     /// Where the last brush stroke ended, so a Shift-click paints a straight line on from it.
     @ObservationIgnored var lastBrushPoint: (point: CGPoint, layerID: UUID, mask: Bool)?
-    /// Where the brush is while Smoothing trails it behind the pointer (see `smoothed`).
-    @ObservationIgnored var brushAnchor: CGPoint?
-    /// The pointer itself, so a smoothed stroke can catch up to it when the button is released.
-    @ObservationIgnored var brushPointer: CGPoint?
+    /// The Brush's Smoothing for the stroke under way, which redraws the line behind the Pencil (see `BrushStabilizer`).
+    @ObservationIgnored var brushStabilizer: BrushStabilizer?
     @ObservationIgnored var maskDistortPreviewCache: MaskDistortPreviewCache?
     /// The last rounded rectangle drawn for a transform in progress, by layer, with the size it was drawn at.
     @ObservationIgnored var shapeTransformPreviewCache: [UUID: (size: CGSize, image: CGImage)] = [:]
@@ -207,6 +205,10 @@ final class EditorSession {
     var blurMode: BlurToolMode = .liquify
     /// The Brush's two modes: Paint lays down the foreground color, Erase clears pixels away (B and E).
     var brushMode: BrushToolMode = .paint
+    /// What the Pencil's pressure changes as the Brush paints or erases: its size to begin with, as in Photoshop.
+    var brushPressure = BrushPressure(rawValue: ToolDefaults.int("brushPressure", BrushPressure.size.rawValue)) {
+        didSet { ToolDefaults.set(brushPressure.rawValue, "brushPressure") }
+    }
     /// The tool rail's icon, which follows the mode a tool is in.
     func symbol(for tool: NavigationTool) -> String {
         tool == .brush && brushMode == .erase ? "eraser" : tool.symbol

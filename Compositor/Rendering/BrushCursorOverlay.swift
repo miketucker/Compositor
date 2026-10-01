@@ -1,6 +1,11 @@
+import CoreGraphics
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 
-final class BrushCursorOverlay: NSView {
+final class BrushCursorOverlay: CanvasOverlayView {
     private var circle: CGRect?
     /// Clone Stamp's source crosshair, in view points.
     private var marker: CGPoint?
@@ -12,8 +17,6 @@ final class BrushCursorOverlay: NSView {
     private static let markerReach: CGFloat = 7
     /// While hardness is being dragged: the fraction of the radius painted at full strength, shown as an inner ring.
     private var hardness: CGFloat?
-    override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
     func update(point: CGPoint?, diameter: CGFloat, sample: CGPoint? = nil, preview: CGImage? = nil,
                 previewOpacity: CGFloat = 1, tip: CGImage? = nil, hardness: CGFloat? = nil) {
         let next = point.map { CGRect(x: $0.x - diameter / 2, y: $0.y - diameter / 2, width: diameter, height: diameter) }
@@ -33,8 +36,8 @@ final class BrushCursorOverlay: NSView {
             if let sample { setNeedsDisplay(CGRect(x: sample.x - reach, y: sample.y - reach, width: reach * 2, height: reach * 2)) }
         }
     }
-    override func draw(_ dirtyRect: NSRect) {
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
+    override func draw(_ dirtyRect: CGRect) {
+        guard let context = PlatformGraphics.currentContext else { return }
         if let circle {
             if let preview {
                 context.saveGState()
@@ -56,20 +59,20 @@ final class BrushCursorOverlay: NSView {
                 context.endTransparencyLayer()
                 context.restoreGState()
             }
-            context.setStrokeColor(NSColor.white.cgColor)
+            context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 1, alpha: 1))
             context.setLineWidth(2.5)
             context.strokeEllipse(in: circle)
-            context.setStrokeColor(NSColor.black.cgColor)
+            context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 0, alpha: 1))
             context.setLineWidth(1)
             context.strokeEllipse(in: circle)
             if let hardness, hardness > 0 {
                 let inset = circle.width * (1 - hardness) / 2
                 let inner = circle.insetBy(dx: inset, dy: inset)
                 context.setLineDash(phase: 0, lengths: [4, 3])
-                context.setStrokeColor(NSColor.white.cgColor)
+                context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 1, alpha: 1))
                 context.setLineWidth(2.5)
                 context.strokeEllipse(in: inner)
-                context.setStrokeColor(NSColor.black.cgColor)
+                context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 0, alpha: 1))
                 context.setLineWidth(1)
                 context.strokeEllipse(in: inner)
                 context.setLineDash(phase: 0, lengths: [])
@@ -83,11 +86,11 @@ final class BrushCursorOverlay: NSView {
             context.addLine(to: CGPoint(x: marker.x, y: marker.y + reach))
             let arms = context.path
             context.setLineCap(.round)
-            context.setStrokeColor(NSColor.white.cgColor)
+            context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 1, alpha: 1))
             context.setLineWidth(3)
             context.strokePath()
             if let arms { context.addPath(arms) }
-            context.setStrokeColor(NSColor.black.cgColor)
+            context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 0, alpha: 1))
             context.setLineWidth(1)
             context.strokePath()
         }

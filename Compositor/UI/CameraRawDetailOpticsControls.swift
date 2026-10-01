@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct CameraRawDetailControls: View {
@@ -69,7 +68,7 @@ struct CameraRawDetailControls: View {
 
     private func assignDetail(_ key: WritableKeyPath<CameraRawDetailSettings, Double>, _ newValue: Double, maskingPreview: Bool) {
         if maskingPreview {
-            session.filterEdit?.cameraRawSharpenMask = NSEvent.modifierFlags.contains(.option)
+            session.filterEdit?.cameraRawSharpenMask = KeyModifiers.current.contains(.option)
         } else {
             session.filterEdit?.cameraRawSharpenMask = false
         }

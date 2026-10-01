@@ -26,7 +26,7 @@ struct LayerAppearanceControls: View {
                     TextField("Opacity percent", text: $percentage)
                         .textFieldStyle(.roundedBorder).frame(width: 44).focused($focused)
                         .onSubmit { releaseFocus() }
-                        .onExitCommand { releaseFocus() }
+                        .onEscape { releaseFocus() }
                         .onChange(of: focused) { _, isFocused in if !isFocused { applyPercentage() } }
                         .arrowSteps(editing: focused, stepper: stepper,
                                     value: { ((session.activeLayer?.opacity ?? 1) * 100).rounded() },

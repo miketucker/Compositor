@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 
 nonisolated enum TextAlignment: String, Codable, CaseIterable, Sendable {
     case left = "Left", center = "Center", right = "Right"
@@ -255,7 +259,7 @@ extension EditorSession {
         tool = .type
         // A click puts new text's first baseline on the pointer, starting at it, as Photoshop's does. A fixed line height leaves its
         // extra room above the letters, so the baseline sits the font's descent up from the bottom of the line.
-        let descent = abs((Self.textAttributes(style)[.font] as? NSFont)?.descender ?? 0)
+        let descent = abs((Self.textAttributes(style)[.font] as? PlatformFont)?.descender ?? 0)
         let baseline = LayerTextStyle.padding + style.lineHeight - descent
         let origin = target?.origin ?? CGPoint(x: point.x - LayerTextStyle.padding, y: point.y - baseline)
         textDraft = TextDraft(documentID: document.id, layerID: target?.id, origin: origin, transform: target?.transform, style: style)
@@ -403,15 +407,15 @@ extension EditorSession {
     nonisolated static func textAttributes(_ style: LayerTextStyle) -> [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = style.alignment == .left ? .left : style.alignment == .center ? .center : .right
-        let font = NSFont(name: style.fontName, size: style.fontSize) ?? NSFont.systemFont(ofSize: style.fontSize)
+        let font = PlatformFont(name: style.fontName, size: style.fontSize) ?? PlatformFont.systemFont(ofSize: style.fontSize)
         // Leading is the line's whole height, so the lines close up (and eventually overlap) as it comes down,
         // exactly as Photoshop's does. Auto is 120% of the size.
         _ = font
         paragraph.minimumLineHeight = style.lineHeight
         paragraph.maximumLineHeight = style.lineHeight
         paragraph.lineBreakMode = .byWordWrapping
-        return [.font: NSFont(name: style.fontName, size: style.fontSize) ?? NSFont.systemFont(ofSize: style.fontSize),
-                .foregroundColor: NSColor(srgbRed: style.red, green: style.green, blue: style.blue, alpha: 1),
+        return [.font: PlatformFont(name: style.fontName, size: style.fontSize) ?? PlatformFont.systemFont(ofSize: style.fontSize),
+                .foregroundColor: PlatformColor.sRGB(style.red, style.green, style.blue),
                 .paragraphStyle: paragraph, .kern: style.tracking]
     }
 
@@ -422,7 +426,7 @@ extension EditorSession {
         let string = attributedText(style)
         let padding = LayerTextStyle.padding
         let measured = string.boundingRect(with: CGSize(width: 100_000, height: 100_000),
-                                           options: [.usesLineFragmentOrigin, .usesFontLeading])
+                                           options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
         let line = ceil(style.lineHeight)
         return CGSize(width: max(16, ceil(measured.width + padding * 2 + style.fontSize * 0.1)),
                       height: max(16, ceil(max(measured.height, line) + padding * 2)))
@@ -432,11 +436,11 @@ extension EditorSession {
     static func attributedText(_ style: LayerTextStyle) -> NSMutableAttributedString {
         let string = NSMutableAttributedString(string: style.content, attributes: textAttributes(style))
         for run in style.fontRuns ?? [] where Self.containsTextRun(run.location, run.length, in: string.length) {
-            let font = NSFont(name: run.fontName, size: style.fontSize) ?? NSFont.systemFont(ofSize: style.fontSize)
+            let font = PlatformFont(name: run.fontName, size: style.fontSize) ?? PlatformFont.systemFont(ofSize: style.fontSize)
             string.addAttribute(.font, value: font, range: NSRange(location: run.location, length: run.length))
         }
         for run in style.colorRuns ?? [] where Self.containsTextRun(run.location, run.length, in: string.length) {
-            string.addAttribute(.foregroundColor, value: NSColor(srgbRed: run.red, green: run.green, blue: run.blue, alpha: 1),
+            string.addAttribute(.foregroundColor, value: PlatformColor.sRGB(run.red, run.green, run.blue),
                                 range: NSRange(location: run.location, length: run.length))
         }
         return string
@@ -455,9 +459,6 @@ extension EditorSession {
         guard width.isFinite, height.isFinite, width >= 1, height >= 1,
               width <= DocumentLimits.maxSideExtent, height <= DocumentLimits.maxSideExtent, width * height <= DocumentLimits.maxSurfaceExtent else { throw ProjectError.tooLarge }
         let context = try BrushRaster.context(width: Int(width), height: Int(height), mask: false)
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
         let storage = NSTextStorage(attributedString: string)
         let layout = NSLayoutManager()
         let container = NSTextContainer(size: CGSize(width: max(1, width - 2 * padding), height: max(1, height - 2 * padding)))
@@ -465,7 +466,9 @@ extension EditorSession {
         storage.addLayoutManager(layout)
         layout.addTextContainer(container)
         let glyphs = layout.glyphRange(for: container)
-        layout.drawGlyphs(forGlyphRange: glyphs, at: CGPoint(x: padding, y: padding))
+        PlatformGraphics.drawing(in: context) {
+            layout.drawGlyphs(forGlyphRange: glyphs, at: CGPoint(x: padding, y: padding))
+        }
         guard let image = context.makeImage() else { throw ExportError.render }
         return image
     }

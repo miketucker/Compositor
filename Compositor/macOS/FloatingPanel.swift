@@ -1,14 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// Where a panel opens the first time (or each time, for docked styles).
-enum FloatingPanelPlacement: Sendable {
-    /// Centered on the canvas, or the last position the user left the panel.
-    case automatic
-    /// Full height of the main document window, flush against its right edge.
-    case dockedToMainWindowRight
-}
-
 /// A movable, non-modal panel for tool dialogs: it never dims the editor, opens centered on
 /// the canvas the first time, and reopens wherever it was last left (for the app session).
 /// The close button reports through `onClose` so callers can treat it as Cancel.
@@ -173,4 +165,5 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     static func refocus(_ identifier: NSUserInterfaceItemIdentifier) {
         NSApp.windows.first { $0.identifier == identifier && $0.isVisible }?.makeKey()
     }
+    static func refocus(named name: String) { refocus(NSUserInterfaceItemIdentifier(name)) }
 }

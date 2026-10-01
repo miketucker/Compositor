@@ -1,6 +1,6 @@
-import AppKit
 import CoreGraphics
 import CoreImage
+import Foundation
 
 /// A line drawn around what the layer shows, outside its edge or inside it.
 nonisolated struct StrokeEffect: Codable, Equatable, Sendable {

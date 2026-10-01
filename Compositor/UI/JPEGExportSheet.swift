@@ -172,7 +172,9 @@ struct JPEGPreview: View {
                 .onTapGesture(count: 2) { self.zoom = nil }
                 .onAppear { keepCentered(from: nil, to: zoom, in: geometry.size) }
                 .onChange(of: zoom) { old, new in keepCentered(from: old, to: new, in: geometry.size) }
+                #if os(macOS)
                 .pointerStyle(dragStart == nil ? .grabIdle : .grabActive)
+                #endif
             } else {
                 Image(decorative: image, scale: 1).resizable().interpolation(.high).scaledToFit()
                     .frame(width: geometry.size.width, height: geometry.size.height)

@@ -1,4 +1,5 @@
-import AppKit
+import CoreGraphics
+import Foundation
 
 extension EditorSession {
     /// An explicitly empty selection leaves nothing paintable, so painting never starts.
@@ -47,7 +48,7 @@ extension EditorSession {
         }
         return stroke
     }
-    func beginBrush(at point: CGPoint) {
+    func beginBrush(at point: CGPoint, pressure: CGFloat = 1) {
         // Spot Healing and Clone Stamp rework image pixels; they have nothing to do on a mask.
         if tool == .blur, blurMode != .blur { beginWarp(at: point); return }
         guard tool == .brush || tool == .blur || (tool.isBrushTool && !isMaskSelected) else { return }
@@ -66,6 +67,7 @@ extension EditorSession {
             settings.healing = tool == .spotHealing
             settings.erasing = tool == .brush && brushMode == .erase && !isMaskSelected
             settings.healingMode = spotHealingMode
+            settings.pressure = tool == .brush ? brushPressure : []
             if isMaskSelected { settings.red = maskPaintWhite ? 1 : 0; settings.green = settings.red; settings.blue = settings.red }
             let stroke = try makeRasterEdit(for: layer, settings: settings, growsMask: tool == .brush)
             if let offset = sourceOffset {
@@ -81,35 +83,46 @@ extension EditorSession {
             }
             stroke.isBlur = tool == .blur
             brushStroke = stroke
-            try stroke.append(point)
-            brushAnchor = point
-            brushPointer = point
+            try stroke.append(point, pressure: pressure)
+            brushStabilizer = tool == .brush && brushSettings.smoothing > 0
+                ? BrushStabilizer(start: BrushSample(point: point, pressure: pressure), smoothing: brushSettings.smoothing,
+                                  zoom: viewport.zoom) : nil
             lastBrushPoint = (point, layer.id, isMaskSelected)
             brushRevision += 1
         } catch { cancelBrush(); brushError = error.localizedDescription }
     }
-    func continueBrush(at point: CGPoint) {
+    func continueBrush(at point: CGPoint, pressure: CGFloat = 1) {
         if let warpStroke { warpStroke.append(point); lastBrushPoint?.point = point; brushRevision += 1; return }
-        guard let brushStroke else { return }
-        brushPointer = point
-        guard let painted = smoothed(point) else { return }
-        do { try brushStroke.append(painted); lastBrushPoint?.point = painted; brushRevision += 1 }
+        guard brushStroke != nil else { return }
+        if brushStabilizer != nil { continueSmoothed([BrushSample(point: point, pressure: pressure)]); return }
+        do { try brushStroke?.append(point, pressure: pressure); lastBrushPoint?.point = point; brushRevision += 1 }
         catch { cancelBrush(); brushError = error.localizedDescription }
     }
-    /// Where the brush actually is, with Smoothing on: it trails the pointer on a string, and only
-    /// moves once the pointer pulls that string taut — the model Photoshop uses. The string's length
-    /// is in screen points, so it feels the same however far the canvas is zoomed in. Nil while the
-    /// string is still slack, which is the whole point: those jitters never reach the stroke.
-    private func smoothed(_ point: CGPoint) -> CGPoint? {
-        guard tool == .brush, brushSettings.smoothing > 0, let anchor = brushAnchor else { return point }
-        let radius = brushSettings.smoothing / max(0.01, viewport.zoom)
-        let delta = CGPoint(x: point.x - anchor.x, y: point.y - anchor.y)
-        let distance = hypot(delta.x, delta.y)
-        guard distance > radius else { return nil }
-        let step = (distance - radius) / distance
-        let moved = CGPoint(x: anchor.x + delta.x * step, y: anchor.y + delta.y * step)
-        brushAnchor = moved
-        return moved
+    /// Several samples of the stroke at once (see `BrushStroke.append`), in the order they were taken, and where the
+    /// stroke is expected to go next, drawn until the samples that follow replace it.
+    func continueBrush(at samples: [BrushSample], predicted: [BrushSample] = []) {
+        guard warpStroke == nil, let brushStroke, samples.count > 1 || !predicted.isEmpty else {
+            for sample in samples { continueBrush(at: sample.point, pressure: sample.pressure) }
+            return
+        }
+        if brushStabilizer != nil { continueSmoothed(samples, predicted: predicted); return }
+        do {
+            try brushStroke.append(samples, predicted: predicted)
+            if let last = samples.last { lastBrushPoint?.point = last.point }
+            brushRevision += 1
+        } catch { cancelBrush(); brushError = error.localizedDescription }
+    }
+    /// With Smoothing: the line goes on to the samples, what's settled behind them is kept, and the rest, through to the
+    /// Pencil and on to where it's predicted to be, is drawn until the next samples redraw it smoother.
+    private func continueSmoothed(_ samples: [BrushSample], predicted: [BrushSample] = []) {
+        guard let brushStroke, let brushStabilizer else { return }
+        for sample in samples { brushStabilizer.add(sample) }
+        let line = brushStabilizer.take()
+        do {
+            try brushStroke.append(line.settled, predicted: line.provisional + predicted)
+            if let last = samples.last { lastBrushPoint?.point = last.point }
+            brushRevision += 1
+        } catch { cancelBrush(); brushError = error.localizedDescription }
     }
     /// Where a Shift-click paints a line from: the end of the last stroke, while the same layer (or mask) is the target.
     func shiftLineStart() -> CGPoint? {
@@ -119,8 +132,7 @@ extension EditorSession {
     func cancelBrush() {
         warpStroke = nil
         brushStroke = nil
-        brushAnchor = nil
-        brushPointer = nil
+        brushStabilizer = nil
         brushRevision += 1
     }
     /// Called directly by mouse-up, before the next input event can be handled.
@@ -135,11 +147,8 @@ extension EditorSession {
         guard !isProjectBusy else { return false }
         defer { cancelBrush() }
         do {
-            // Smoothing leaves the brush short of the pointer; the stroke ends where the hand did.
-            if let pointer = brushPointer, let anchor = brushAnchor, pointer != anchor,
-               tool == .brush, brushSettings.smoothing > 0 {
-                try stroke.append(pointer)
-            }
+            // Smoothing settles the rest of the line as it's shown, out to where the Pencil lifted.
+            if let line = brushStabilizer?.take(finishing: true), !line.settled.isEmpty { try stroke.append(line.settled) }
             try stroke.flush()
             if stroke.settings.healing { try stroke.heal() }
             if !stroke.patches.isEmpty { try commitPaintSnapshot(stroke) }

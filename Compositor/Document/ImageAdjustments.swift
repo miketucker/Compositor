@@ -1,4 +1,5 @@
-import AppKit
+import CoreGraphics
+import Foundation
 
 /// Draws an image into an RGBA buffer (premultiplied, alpha last), lets a C kernel change it in place,
 /// and returns the result.

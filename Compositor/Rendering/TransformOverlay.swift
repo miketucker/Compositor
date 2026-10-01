@@ -1,4 +1,10 @@
+import CoreGraphics
+import Foundation
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 
 struct TransformOverlayGeometry: Equatable {
     let handles: [CGPoint]
@@ -40,26 +46,28 @@ struct TransformOverlayGeometry: Equatable {
         return nil
     }
 
-    func resizeCursor(for index: Int) -> NSCursor {
+    /// Which way resize handle `index` drags on screen, as the box is turned: 0 across, 1 down to the right, 2 up and
+    /// down, 3 up to the right.
+    func resizeDirection(for index: Int) -> Int {
         let angle = atan2(handles[2].y - handles[0].y, handles[2].x - handles[0].x)
         let offsets: [CGFloat] = [.pi / 4, .pi / 2, 3 * .pi / 4, 0, .pi / 4, .pi / 2, 3 * .pi / 4, 0]
-        let direction = (Int(((angle + offsets[index]) / (.pi / 4)).rounded()) % 4 + 4) % 4
-        let positions: [NSCursor.FrameResizePosition] = [.right, .bottomRight, .bottom, .topRight]
-        return .frameResize(position: positions[direction], directions: [.inward, .outward])
+        return (Int(((angle + offsets[index]) / (.pi / 4)).rounded()) % 4 + 4) % 4
     }
 }
 
 /// Separate overlay so selecting a layer does not redraw image pixels.
-final class TransformOverlay: NSView {
+final class TransformOverlay: CanvasOverlayView {
     let session: EditorSession
     init(session: EditorSession) {
         self.session = session
         super.init(frame: .zero)
+        #if os(macOS)
         setAccessibilityElement(false)
+        #else
+        isAccessibilityElement = false
+        #endif
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     var geometry: TransformOverlayGeometry? {
         guard session.tool == .move, session.showsTransformControls || session.transformEdit?.persistent == true,
@@ -118,7 +126,7 @@ final class TransformOverlay: NSView {
             path.applyWithBlock { _ in elements += 1 }
             antsSourceIsComplex = elements > Self.fullDetailLimit
         }
-        let scale = session.viewport.pointsPerPixel * (window?.backingScaleFactor ?? 2)
+        let scale = session.viewport.pointsPerPixel * session.viewport.backingScale
         guard antsSourceIsComplex, scale < 1, let document = session.document else { return path }
         // Screen pixels per document pixel, rounded up to a power of two so zooming doesn't retrace on every frame.
         let step = min(1, pow(2, ceil(log2(max(scale, 1 / 4096)))))
@@ -176,7 +184,7 @@ final class TransformOverlay: NSView {
         return traced.copy(using: &toDocument)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    override func draw(_ dirtyRect: CGRect) {
         drawLayoutGrid()
         drawGuides()
         if session.tool == .crop { drawCrop() }
@@ -191,10 +199,10 @@ final class TransformOverlay: NSView {
     /// chosen color.
     private func drawLayoutGrid() {
         guard session.showsGrid, let document = session.document, let transform = documentToView,
-              let context = NSGraphicsContext.current?.cgContext else { return }
+              let context = PlatformGraphics.currentContext else { return }
         let grid = session.layoutGrid
         let appearance = session.gridAppearance
-        let color = appearance.color.nsColor
+        let color = appearance.color.platformColor
         let size = document.size
         let scale = session.viewport.pointsPerPixel
         let hairline = 1 / max(session.viewport.backingScale, 1)
@@ -236,7 +244,7 @@ final class TransformOverlay: NSView {
     /// User guides span the whole view, including the pasteboard.
     private func drawGuides() {
         guard session.showsGuides, let document = session.document,
-              let context = NSGraphicsContext.current?.cgContext else { return }
+              let context = PlatformGraphics.currentContext else { return }
         let guides = session.displayedGuides
         guard !guides.isEmpty else { return }
         context.saveGState()
@@ -261,9 +269,9 @@ final class TransformOverlay: NSView {
     private func drawSnapGuides() {
         let guides = session.snapGuides
         guard !guides.xs.isEmpty || !guides.ys.isEmpty, let document = session.document,
-              let transform = documentToView, let context = NSGraphicsContext.current?.cgContext else { return }
+              let transform = documentToView, let context = PlatformGraphics.currentContext else { return }
         context.saveGState()
-        context.setStrokeColor(NSColor.controlAccentColor.cgColor)
+        context.setStrokeColor(PlatformColor.accent.cgColor)
         context.setLineWidth(1)
         for x in guides.xs {
             context.move(to: CGPoint(x: x, y: 0).applying(transform))
@@ -288,15 +296,15 @@ final class TransformOverlay: NSView {
     private func drawSelection() {
         guard let selection = session.displayedSelection, !selection.isEmpty, var transform = documentToView,
               let outline = antsOutline(for: selection.path),
-              let path = outline.copy(using: &transform), let context = NSGraphicsContext.current?.cgContext else { return }
+              let path = outline.copy(using: &transform), let context = PlatformGraphics.currentContext else { return }
         context.saveGState()
         context.setLineWidth(1)
         context.addPath(path)
-        context.setStrokeColor(NSColor.white.cgColor)
+        context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 1, alpha: 1))
         context.strokePath()
         context.addPath(path)
         context.setLineDash(phase: antsPhase, lengths: [4, 4])
-        context.setStrokeColor(NSColor.black.cgColor)
+        context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 0, alpha: 1))
         context.strokePath()
         context.restoreGState()
     }
@@ -304,7 +312,7 @@ final class TransformOverlay: NSView {
 
     private func drawLassoDraft() {
         guard let draft = session.lassoDraft, let transform = documentToView,
-              let context = NSGraphicsContext.current?.cgContext else { return }
+              let context = PlatformGraphics.currentContext else { return }
         var points = draft.points.map { $0.applying(transform) }
         if draft.kind == .polygonal, let cursor = draft.cursor { points.append(cursor.applying(transform)) }
         guard let first = points.first else { return }
@@ -318,26 +326,26 @@ final class TransformOverlay: NSView {
             if draft.kind == .rectangle { path.closeSubpath() }
         }
         context.addPath(path)
-        context.setStrokeColor(NSColor.black.withAlphaComponent(0.8).cgColor)
+        context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 0, alpha: 0.8))
         context.setLineWidth(2)
         context.strokePath()
         context.addPath(path)
-        context.setStrokeColor(NSColor.white.cgColor)
+        context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 1, alpha: 1))
         context.setLineWidth(1)
         context.strokePath()
         if draft.kind == .polygonal {
             // The first corner: click it to close the outline.
             let handle = CGRect(x: first.x - 4, y: first.y - 4, width: 8, height: 8)
-            context.setFillColor(NSColor.white.cgColor)
+            context.setFillColor(CGColor(genericGrayGamma2_2Gray: 1, alpha: 1))
             context.fill(handle)
-            context.setStrokeColor(NSColor.black.cgColor)
+            context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 0, alpha: 1))
             context.stroke(handle)
         }
         context.restoreGState()
     }
 
     private func drawTransformHandles() {
-        guard let geometry, let context = NSGraphicsContext.current?.cgContext else { return }
+        guard let geometry, let context = PlatformGraphics.currentContext else { return }
         let path = CGMutablePath()
         path.move(to: geometry.handles[0])
         for index in [2, 4, 6] { path.addLine(to: geometry.handles[index]) }
@@ -348,11 +356,11 @@ final class TransformOverlay: NSView {
         }
         // Just the accent line: a dark line behind it read as a grey halo around the box.
         context.addPath(path)
-        context.setStrokeColor(NSColor.controlAccentColor.cgColor)
+        context.setStrokeColor(PlatformColor.accent.cgColor)
         context.setLineWidth(1)
         context.strokePath()
-        context.setFillColor(NSColor.white.cgColor)
-        context.setStrokeColor(NSColor.controlAccentColor.cgColor)
+        context.setFillColor(CGColor(genericGrayGamma2_2Gray: 1, alpha: 1))
+        context.setStrokeColor(PlatformColor.accent.cgColor)
         for point in geometry.handles {
             let rect = CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)
             context.fill(rect)
@@ -395,41 +403,41 @@ final class TransformOverlay: NSView {
         return regions
     }
     private func drawGradientLine(_ line: (start: CGPoint, end: CGPoint)) {
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        guard let context = PlatformGraphics.currentContext else { return }
         context.saveGState()
         if session.gradientSettings.shape == .radial {
             // Faint rim where the radial gradient reaches its end color.
             let radius = hypot(line.end.x - line.start.x, line.end.y - line.start.y)
             let rim = CGRect(x: line.start.x - radius, y: line.start.y - radius, width: radius * 2, height: radius * 2)
             context.setLineDash(phase: 0, lengths: [4, 4])
-            context.setStrokeColor(NSColor.black.withAlphaComponent(0.5).cgColor)
+            context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 0, alpha: 0.5))
             context.setLineWidth(2)
             context.strokeEllipse(in: rim)
-            context.setStrokeColor(NSColor.white.withAlphaComponent(0.8).cgColor)
+            context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 1, alpha: 0.8))
             context.setLineWidth(1)
             context.strokeEllipse(in: rim)
             context.setLineDash(phase: 0, lengths: [])
         }
         context.move(to: line.start)
         context.addLine(to: line.end)
-        context.setStrokeColor(NSColor.black.withAlphaComponent(0.7).cgColor)
+        context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 0, alpha: 0.7))
         context.setLineWidth(3)
         context.strokePath()
         context.move(to: line.start)
         context.addLine(to: line.end)
-        context.setStrokeColor(NSColor.white.cgColor)
+        context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 1, alpha: 1))
         context.setLineWidth(1)
         context.strokePath()
-        context.setStrokeColor(NSColor.black.cgColor)
+        context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 0, alpha: 1))
         context.setLineWidth(1)
         for (point, color) in [(line.start, session.gradientColors(mask: false).first), (line.end, session.gradientColors(mask: false).last)] {
             let rect = CGRect(x: point.x - 6, y: point.y - 6, width: 12, height: 12)
-            context.setFillColor(NSColor.white.cgColor)
+            context.setFillColor(CGColor(genericGrayGamma2_2Gray: 1, alpha: 1))
             context.fillEllipse(in: rect)
             context.strokeEllipse(in: rect)
             // Checkerboard shows through transparent ends.
             let inner = rect.insetBy(dx: 2.5, dy: 2.5)
-            context.setFillColor(NSColor(white: 0.75, alpha: 1).cgColor)
+            context.setFillColor(CGColor(genericGrayGamma2_2Gray: 0.75, alpha: 1))
             context.fillEllipse(in: inner)
             if let color { context.setFillColor(color); context.fillEllipse(in: inner) }
         }
@@ -437,16 +445,16 @@ final class TransformOverlay: NSView {
     }
 
     private func drawCrop() {
-        guard let rect = cropViewRect, let context = NSGraphicsContext.current?.cgContext else { return }
+        guard let rect = cropViewRect, let context = PlatformGraphics.currentContext else { return }
         context.saveGState()
         context.addRect(bounds)
         context.addRect(rect)
-        context.setFillColor(NSColor.black.withAlphaComponent(0.6).cgColor)
+        context.setFillColor(CGColor(genericGrayGamma2_2Gray: 0, alpha: 0.6))
         context.drawPath(using: .eoFill)
-        context.setStrokeColor(NSColor.white.cgColor)
+        context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 1, alpha: 1))
         context.setLineWidth(1)
         context.stroke(rect)
-        context.setStrokeColor(NSColor.white.withAlphaComponent(0.4).cgColor)
+        context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 1, alpha: 0.4))
         for index in 1...2 {
             let fraction = CGFloat(index) / 3
             context.move(to: CGPoint(x: rect.minX + rect.width * fraction, y: rect.minY))
@@ -455,8 +463,8 @@ final class TransformOverlay: NSView {
             context.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + rect.height * fraction))
         }
         context.strokePath()
-        context.setFillColor(NSColor.white.cgColor)
-        context.setStrokeColor(NSColor.black.cgColor)
+        context.setFillColor(CGColor(genericGrayGamma2_2Gray: 1, alpha: 1))
+        context.setStrokeColor(CGColor(genericGrayGamma2_2Gray: 0, alpha: 1))
         for point in cropHandles {
             let handle = CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)
             context.fill(handle)

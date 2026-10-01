@@ -1,4 +1,5 @@
-import AppKit
+import CoreGraphics
+import Foundation
 
 nonisolated enum LiveMaskGraph {
     static func validate(_ layers: [ProjectLayerRecord]) throws {
@@ -105,26 +106,24 @@ extension EditorSession {
         let removed = ids.reduce(into: Set<UUID>()) { $0.formUnion(descendantIDs(of: $1).union([$1])) }
         let targets = (document?.layers ?? []).filter { !removed.contains($0.id) && $0.maskSourceID.map(removed.contains) == true }.map(\.id)
         guard !targets.isEmpty else { return false }
-        let alert = NSAlert()
-        alert.messageText = ids.count == 1 ? "This layer supplies a live mask" : "These layers supply live masks"
-        alert.informativeText = "Bake keeps the current masked appearance in the dependent layers’ pixels. Remove Links reveals their pixels. You can undo either choice."
-        alert.addButton(withTitle: "Bake and Delete")
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Remove Links and Delete")
-        let response = alert.runModal()
-        if response == .alertThirdButtonReturn { finishDeletingLayers(ids, baked: [:]); return true }
-        guard response == .alertFirstButtonReturn, let snapshot = projectSnapshot() else { return true }
-        isProjectBusy = true
-        Task {
-            defer { isProjectBusy = false }
-            do {
-                let baked = try await Task.detached(priority: .userInitiated) {
-                    var result: [UUID: ImportedImage] = [:]
-                    for target in targets { result[target] = try LiveMaskBaker.bake(snapshot, target: target) }
-                    return result
-                }.value
-                finishDeletingLayers(ids, baked: baked)
-            } catch { brushError = error.localizedDescription }
+        let prompt = Prompt(title: ids.count == 1 ? "This layer supplies a live mask" : "These layers supply live masks",
+            message: "Bake keeps the current masked appearance in the dependent layers’ pixels. Remove Links reveals their pixels. You can undo either choice.",
+            buttons: ["Bake and Delete", "Cancel", "Remove Links and Delete"], cancel: 1)
+        Prompts.ask(prompt) { [self] choice in
+            if choice == 2 { finishDeletingLayers(ids, baked: [:]); return }
+            guard choice == 0, let snapshot = projectSnapshot() else { return }
+            isProjectBusy = true
+            Task {
+                defer { isProjectBusy = false }
+                do {
+                    let baked = try await Task.detached(priority: .userInitiated) {
+                        var result: [UUID: ImportedImage] = [:]
+                        for target in targets { result[target] = try LiveMaskBaker.bake(snapshot, target: target) }
+                        return result
+                    }.value
+                    finishDeletingLayers(ids, baked: baked)
+                } catch { brushError = error.localizedDescription }
+            }
         }
         return true
     }

@@ -1,6 +1,7 @@
-import AppKit
 import Accelerate
+import CoreGraphics
 import CoreImage
+import Foundation
 
 /// Whole-image invert in one vectorized pass (vImage), optionally limited to a selection.
 /// Inverting never changes a layer's size, so no tiles, bounds scans, or re-cropping.

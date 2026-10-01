@@ -62,6 +62,7 @@ struct LassoControls: View {
                 Button("Feather") { session.featherSelection(by: session.selectionFeatherAmount) }
                     .disabled(!session.canModifySelection)
                     .help("Fade the edge of the selection by this many pixels")
+                #if os(macOS)
                 TextField("Feather", value: Binding(get: { Double(session.selectionFeatherAmount) },
                                                     set: { session.selectionFeatherAmount = $0.isFinite ? Int(min(250, max(1, $0))) : 2 }),
                           format: .number.precision(.fractionLength(0)))
@@ -70,6 +71,11 @@ struct LassoControls: View {
                                 change: { session.selectionFeatherAmount = Int(min(250, max(1, $0))) })
                     .unitSuffix("px", scrubValue: $session.selectionFeatherAmount,
                                 sensitivity: 1, range: 1...250)
+                #else
+                HeaderValue(title: "Feather", value: Binding(get: { Double(session.selectionFeatherAmount) },
+                                                             set: { session.selectionFeatherAmount = Int($0) }),
+                            range: 1...250, unit: "px", slider: 1...250, logarithmic: true, showsTitle: false)
+                #endif
             }
             Spacer(minLength: 0)
             if let selection = session.selection {
@@ -85,6 +91,7 @@ struct LassoControls: View {
     private var wandControls: some View {
         HStack(spacing: 12) {
             HStack(spacing: 6) {
+                #if os(macOS)
                 Text("Tolerance").scrubbable(sensitivity: 1, value: $session.wandSettings.tolerance, range: 0...255)
                 TextField("Tolerance", value: Binding(get: { session.wandSettings.tolerance },
                                                       set: { session.wandSettings.tolerance = min(255, max(0, $0)) }),
@@ -93,6 +100,11 @@ struct LassoControls: View {
                     .multilineTextAlignment(.trailing)
                     .arrowSteps(value: { Double(session.wandSettings.tolerance) },
                                 change: { session.wandSettings.tolerance = Int(min(255, max(0, $0.rounded()))) })
+                #else
+                HeaderValue(title: "Tolerance", value: Binding(get: { Double(session.wandSettings.tolerance) },
+                                                               set: { session.wandSettings.tolerance = Int($0) }),
+                            range: 0...255, slider: 0...255)
+                #endif
             }
             .help("How far each color channel (0–255) can differ from the clicked color and still be selected")
             Picker("Sample Size", selection: $session.wandSettings.sampleSize) {
@@ -120,6 +132,7 @@ struct LassoControls: View {
             .pickerStyle(.segmented).labelsHidden().fixedSize()
             .help("Analyze the active layer only, or every visible layer as shown")
             HStack(spacing: 6) {
+                #if os(macOS)
                 Text("Edge").scrubbable(sensitivity: 1, value: $session.objectSelectionSettings.edgeOffset, range: -10...10)
                 TextField("Edge", value: Binding(get: { session.objectSelectionSettings.edgeOffset },
                                                  set: { session.objectSelectionSettings.edgeOffset = min(10, max(-10, $0)) }),
@@ -129,6 +142,11 @@ struct LassoControls: View {
                     .arrowSteps(value: { Double(session.objectSelectionSettings.edgeOffset) },
                                 change: { session.objectSelectionSettings.edgeOffset = Int(min(10, max(-10, $0.rounded()))) })
                     .unitSuffix("px")
+                #else
+                HeaderValue(title: "Edge", value: Binding(get: { Double(session.objectSelectionSettings.edgeOffset) },
+                                                          set: { session.objectSelectionSettings.edgeOffset = Int($0) }),
+                            range: -10...10, unit: "px", slider: -10...10)
+                #endif
             }
             // The bar squeezes text before controls, so without this the label and unit collapse to
             // nothing the moment a selection adds its own buttons, leaving an unlabelled number box.
@@ -141,6 +159,7 @@ struct LassoControls: View {
     private func modifyControl(_ title: String, amount: Binding<Int>, action: @escaping () -> Void) -> some View {
         HStack(spacing: 5) {
             Button(title, action: action)
+            #if os(macOS)
             TextField(title, value: Binding(get: { amount.wrappedValue },
                                             set: { amount.wrappedValue = min(500, max(1, $0)) }),
                       format: .number)
@@ -149,6 +168,10 @@ struct LassoControls: View {
                 .arrowSteps(value: { Double(amount.wrappedValue) },
                             change: { amount.wrappedValue = Int(min(500, max(1, $0.rounded()))) })
                 .unitSuffix("px", scrubValue: amount, sensitivity: 1, range: 1...500)
+            #else
+            HeaderValue(title: title, value: Binding(get: { Double(amount.wrappedValue) }, set: { amount.wrappedValue = Int($0) }),
+                        range: 1...500, unit: "px", slider: 1...500, logarithmic: true, showsTitle: false)
+            #endif
         }
         .disabled(!session.canModifySelection)
         .help("\(title) the selection by this many pixels")

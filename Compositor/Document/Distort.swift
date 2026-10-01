@@ -1,5 +1,6 @@
-import AppKit
+import CoreGraphics
 import CoreImage
+import Foundation
 
 /// Free distortion (Cmd-drag a transform handle): the layer's four corners move independently.
 /// Layer transforms are affine, so a distortion is previewed live and, on Apply, the pixels (and

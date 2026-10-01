@@ -6,7 +6,7 @@ import Observation
 /// Keys held while typing in a text field don't count — ⌘A there shouldn't flicker the options bar.
 @MainActor @Observable final class HeldModifiers {
     static let shared = HeldModifiers()
-    private(set) var flags: NSEvent.ModifierFlags = []
+    private(set) var flags: KeyModifiers = []
     @ObservationIgnored private var monitor: Any?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
@@ -33,7 +33,7 @@ import Observation
 
     func update(_ raw: NSEvent.ModifierFlags) {
         let typing = NSApp.keyWindow?.firstResponder is NSText
-        let held = typing ? [] : raw.intersection([.command, .shift, .option, .control])
+        let held = typing ? [] : KeyModifiers(raw)
         if held != flags { flags = held }
     }
 }

@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 
 /// Keeps an open project in step with its package on disk. When something else writes the package, the document
 /// is reloaded in place: same tab, same viewport, same selection where the layers still exist. Only a real change
@@ -9,10 +9,12 @@ extension ProjectController {
     /// every save, so the digest of the package on disk is always the one we last read or wrote.
     func watchProject(at url: URL) {
         guard url != externalChanges.watcher?.url else { return }
+        keepAccess(to: url)
         externalChanges.watcher = ProjectWatcher(url: url) { [weak self] in self?.noteExternalChange() }
     }
 
     func stopWatchingProject() {
+        releaseAccess()
         externalChanges.watcher = nil
         externalChanges.knownDigest = nil
         externalChanges.recheck?.cancel()
@@ -30,7 +32,7 @@ extension ProjectController {
         if externalChanges.pending { noteExternalChange() }
     }
 
-    private func noteExternalChange() {
+    func noteExternalChange() {
         externalChanges.pending = true
         guard !externalChanges.checking else { return }
         Task { await checkExternalChange() }
@@ -50,8 +52,8 @@ extension ProjectController {
                 scheduleRecheck(); return
             }
             if session.isModified {
-                guard let window, isFrontmost else { externalChanges.pending = true; return }
-                guard await askToRevert(in: window) else { externalChanges.knownDigest = digest; continue }
+                guard canPresentDialogs, isFrontmost else { externalChanges.pending = true; return }
+                guard await askToRevert() else { externalChanges.knownDigest = digest; continue }
             }
             await reloadFromDisk(url)
         }
@@ -86,13 +88,10 @@ extension ProjectController {
         externalChanges.reloadCount += 1
     }
 
-    private func askToRevert(in window: NSWindow) async -> Bool {
-        let alert = NSAlert()
-        alert.messageText = "“\(session.projectURL?.lastPathComponent ?? "Untitled")” was changed on disk."
-        alert.informativeText = "Another app changed this project. You can revert to the version on disk, losing your unsaved changes, or keep what you have."
-        alert.addButton(withTitle: "Revert")
-        alert.addButton(withTitle: "Keep Mine")
-        return await alert.beginSheetModal(for: window) == .alertFirstButtonReturn
+    private func askToRevert() async -> Bool {
+        await ask(Prompt(title: "“\(session.projectURL?.lastPathComponent ?? "Untitled")” was changed on disk.",
+                         message: "Another app changed this project. You can revert to the version on disk, losing your unsaved changes, or keep what you have.",
+                         buttons: ["Revert", "Keep Mine"], cancel: 1)) == 0
     }
 }
 

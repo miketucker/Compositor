@@ -50,17 +50,16 @@ struct CanvasSizeSheet: View {
         ByteCountFormatter.string(fromByteCount: Int64(width) * Int64(height) * 4, countStyle: .memory)
     }
     private var fill: CanvasExtensionColor? {
-        let color: NSColor
+        let color: PaletteColor
         switch extensionChoice {
         case "Transparent": return nil
         case "Black": color = .black
-        case "Foreground": color = foreground.nsColor
+        case "Foreground": color = foreground
         case "White": color = .white
-        case "Background": color = background.nsColor
-        default: color = customColor.nsColor
+        case "Background": color = background
+        default: color = customColor
         }
-        guard let rgb = color.usingColorSpace(.sRGB) else { return nil }
-        return CanvasExtensionColor(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent)
+        return CanvasExtensionColor(red: color.red, green: color.green, blue: color.blue)
     }
 
     var body: some View { sheet.roundedControls() }

@@ -1,5 +1,6 @@
-import AppKit
+import CoreGraphics
 import CoreImage
+import Foundation
 
 /// Shared plumbing for whole-image adjustments: unmanaged Core Image rendering, selection
 /// coverage on an image's own pixel grid, and blending a result back through a selection.

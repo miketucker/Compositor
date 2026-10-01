@@ -1,4 +1,5 @@
-import AppKit
+import CoreGraphics
+import Foundation
 
 /// Canvas-only previews. Full-resolution export continues to use LayerEffectsRenderer.render on its worker.
 /// A single worker, superseded-request cancellation and a fixed pixel budget keep slider drags off the UI thread.

@@ -1,4 +1,5 @@
-import AppKit
+import CoreGraphics
+import Foundation
 
 /// Cmd-T with a selection: the selected pixels float on a temporary layer, edited with the
 /// normal transform handles, then merge back into their layer. The whole thing is one
@@ -25,10 +26,10 @@ extension EditorSession {
     }
 
     func beginSelectionTransform() async {
-        guard canTransformSelection, let document, let source = activeLayer else { NSSound.beep(); return }
+        guard canTransformSelection, let document, let source = activeLayer else { Feedback.beep(); return }
         let lifted: (image: CGImage, region: CGRect)
         do {
-            guard let pixels = try renderSelectedPixels(from: source, mask: false) else { NSSound.beep(); return }
+            guard let pixels = try renderSelectedPixels(from: source, mask: false) else { Feedback.beep(); return }
             lifted = pixels
         } catch { brushError = error.localizedDescription; return }
         let before = document, beforeActive = activeLayerID

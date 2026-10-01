@@ -1,5 +1,6 @@
-import AppKit
+import CoreGraphics
 import CoreImage
+import Foundation
 
 nonisolated enum AdjustmentKind: String, Codable, CaseIterable, Sendable {
     case hsv = "Hue/Saturation", levels = "Levels", curves = "Curves"

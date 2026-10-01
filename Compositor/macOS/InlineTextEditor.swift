@@ -73,7 +73,7 @@ final class CanvasTextView: NSTextView {
 final class InlineTextEditor: NSView, NSTextViewDelegate {
     weak var canvas: CanvasView?
     let textView = CanvasTextView(frame: .zero)
-    fileprivate var draftID: UUID?
+    var draftID: UUID?
     private var shownStyle: LayerTextStyle?
     /// The style after an edit NSTextView has accepted but not yet made, with its color and font runs moved to fit.
     private var pendingStyle: LayerTextStyle?
@@ -513,7 +513,7 @@ extension CanvasView {
         inlineTextEditor?.synchronize(draft)
     }
 
-    func beginTextGesture(at point: CGPoint, event: NSEvent) {
+    func beginTextGesture(at point: CGPoint, event: CanvasPointer) {
         guard let document = session.document, session.finishText() else { return }
         let pixel = session.viewport.documentPoint(from: point, documentSize: document.size)
         let visible = document.effectiveVisibleIDs
@@ -521,37 +521,11 @@ extension CanvasView {
             session.selectLayer(layer.id)
             session.editActiveText()
             synchronizeInlineText()
-            inlineTextEditor?.textView.mouseDown(with: event)
+            if let press = event.event { inlineTextEditor?.textView.mouseDown(with: press) }
         } else {
             textBoxAnchor = pixel
             textBoxRect = CGRect(origin: pixel, size: .zero)
         }
         needsDisplay = true
-    }
-
-    func dragTextGesture(to point: CGPoint) {
-        guard let anchor = textBoxAnchor, let document = session.document else { return }
-        let pixel = session.viewport.documentPoint(from: point, documentSize: document.size)
-        textBoxRect = DragBox.rect(from: anchor, to: pixel, square: false, fromCenter: false)
-        needsDisplay = true
-    }
-
-    func finishTextGesture() {
-        guard let rect = textBoxRect else { return }
-        textBoxAnchor = nil; textBoxRect = nil
-        if rect.width < 4 && rect.height < 4 { session.beginText(at: rect.origin, newLayer: true) }
-        else { session.beginText(in: rect) }
-        synchronizeInlineText()
-        needsDisplay = true
-    }
-
-    func drawTextBoxDraft() {
-        guard let rect = textBoxRect, let document = session.document else { return }
-        let origin = session.viewport.viewPoint(from: rect.origin, documentSize: document.size)
-        let scale = session.viewport.pointsPerPixel
-        NSColor.controlAccentColor.setStroke()
-        let path = NSBezierPath(rect: CGRect(origin: origin, size: CGSize(width: rect.width * scale, height: rect.height * scale)))
-        path.lineWidth = 1
-        path.stroke()
     }
 }

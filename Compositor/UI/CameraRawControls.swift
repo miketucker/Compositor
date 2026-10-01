@@ -1,5 +1,7 @@
-import AppKit
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// Camera Raw Filter's adjustment column: the histogram, then Light, Color, Color Grading, Effects, Curve,
 /// Color Mixer, Detail, Optics, Geometry, and Calibration.
@@ -327,7 +329,7 @@ struct CameraRawControls: View {
     }
 
     private func assign(_ key: WritableKeyPath<CameraRawSettings, Double>, _ newValue: Double, clipping: CameraRawClipping?) {
-        let showClipping = clipping != nil && NSEvent.modifierFlags.contains(.option)
+        let showClipping = clipping != nil && KeyModifiers.current.contains(.option)
         session.filterEdit?.cameraRawClipping = showClipping ? clipping : nil
         update { settings in
             settings.cameraRaw[keyPath: key] = newValue
@@ -350,6 +352,7 @@ struct CameraRawControls: View {
 
     private func installOptionMonitor() {
         removeOptionMonitor()
+        #if os(macOS)
         optionMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
             if !event.modifierFlags.contains(.option) {
                 let edit = session.filterEdit
@@ -361,10 +364,13 @@ struct CameraRawControls: View {
             }
             return event
         }
+        #endif
     }
 
     private func removeOptionMonitor() {
+        #if os(macOS)
         if let optionMonitor { NSEvent.removeMonitor(optionMonitor) }
+        #endif
         optionMonitor = nil
     }
 

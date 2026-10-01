@@ -1,5 +1,6 @@
-import AppKit
+import CoreGraphics
 import CoreImage
+import Foundation
 import Observation
 
 /// Filters from the Filter menu. Each runs on the active image layer, inside the selection if
@@ -478,7 +479,7 @@ extension EditorSession {
     }
     func beginFilter(_ kind: FilterKind) {
         if kind == .contentAwareFill && !canContentAwareFill { return }
-        guard filterEdit == nil, hueSaturation == nil, kind == .vignette ? canVignette : canAdjustColors else { NSSound.beep(); return }
+        guard filterEdit == nil, hueSaturation == nil, kind == .vignette ? canVignette : canAdjustColors else { Feedback.beep(); return }
         if gradientEdit != nil {
             Task { await commitGradient(); beginFilter(kind) }
             return

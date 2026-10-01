@@ -12,6 +12,9 @@ struct CropControls: View {
                 ForEach(["Free", "Original", "1:1", "4:3", "3:4", "16:9", "9:16"], id: \.self) { Text($0) }
             }.frame(width: 170)
                 .onChange(of: session.cropRatioChoice) { _, _ in session.changeCropRatio() }
+            #if !os(macOS)
+            ToolOptionButton(session: session)
+            #endif
             if let rect = session.cropRect {
                 Text("\(Int(rect.width)) × \(Int(rect.height)) px").monospacedDigit()
             }

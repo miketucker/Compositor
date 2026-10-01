@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// The open filter's panel: its settings, Preview, and Cancel / OK.
@@ -284,12 +283,12 @@ struct FilterSheet: View {
         return value
     }
 
-    static let cyanRedTrack = CameraRawSliderTrack.opposing(NSColor(srgbRed: 0.10, green: 0.72, blue: 0.80, alpha: 1),
-                                                            NSColor(srgbRed: 0.86, green: 0.18, blue: 0.20, alpha: 1))
-    static let magentaGreenTrack = CameraRawSliderTrack.opposing(NSColor(srgbRed: 0.80, green: 0.22, blue: 0.70, alpha: 1),
-                                                                 NSColor(srgbRed: 0.24, green: 0.70, blue: 0.30, alpha: 1))
-    static let yellowBlueTrack = CameraRawSliderTrack.opposing(NSColor(srgbRed: 0.95, green: 0.82, blue: 0.18, alpha: 1),
-                                                               NSColor(srgbRed: 0.22, green: 0.40, blue: 0.92, alpha: 1))
+    static let cyanRedTrack = CameraRawSliderTrack.opposing(.sRGB(0.10, 0.72, 0.80),
+                                                            .sRGB(0.86, 0.18, 0.20))
+    static let magentaGreenTrack = CameraRawSliderTrack.opposing(.sRGB(0.80, 0.22, 0.70),
+                                                                 .sRGB(0.24, 0.70, 0.30))
+    static let yellowBlueTrack = CameraRawSliderTrack.opposing(.sRGB(0.95, 0.82, 0.18),
+                                                               .sRGB(0.22, 0.40, 0.92))
 
     /// A slider plus an exact field. Logarithmic sliders give the small values used most most of the travel.
     /// A colored track draws the slider as Camera Raw's, where a double-click on the title or knob resets it.

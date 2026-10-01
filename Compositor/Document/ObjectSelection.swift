@@ -1,5 +1,6 @@
-import AppKit
+import CoreGraphics
 import CoreImage
+import Foundation
 import Vision
 
 nonisolated struct ObjectSelectionSettings: Equatable, Sendable {

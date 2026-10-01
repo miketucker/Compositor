@@ -1,10 +1,8 @@
 import SwiftUI
-import AppKit
 
 struct ColorPaletteControls: View {
     let session: EditorSession
     @State private var choosingMaskBackground: Bool?
-    @State private var pickerPanel = ColorPickerPanelController()
     private let swatchSize: CGFloat = 24
     private let swatchOffset: CGFloat = 12
     var body: some View {
@@ -46,10 +44,6 @@ struct ColorPaletteControls: View {
                 }
             }.padding(16)
         }
-        .onChange(of: session.colorPicker.map(ObjectIdentifier.init)) { _, _ in
-            if let picker = session.colorPicker { pickerPanel.show(picker, session: session) }
-            else { pickerPanel.close() }
-        }
         .onChange(of: session.isMaskSelected) { _, masked in
             choosingMaskBackground = nil
             if masked { session.closeColorPicker(commit: false) }
@@ -63,7 +57,7 @@ struct ColorPaletteControls: View {
             else { session.openColorPicker(background: background) }
         } label: {
             shape
-                .fill(Color(nsColor: session.paletteColor(background: background).nsColor))
+                .fill(session.paletteColor(background: background).swiftUI)
                 .overlay { shape.inset(by: 1).strokeBorder(.white, lineWidth: 1.5) }
                 .overlay { shape.strokeBorder(.black, lineWidth: 1) }
                 .frame(width: swatchSize, height: swatchSize)
@@ -75,5 +69,18 @@ struct ColorPaletteControls: View {
         guard let background = choosingMaskBackground else { return }
         session.setPaletteColor(color, background: background)
         choosingMaskBackground = nil
+    }
+}
+
+/// Shows the color picker while the session has one open, however it was opened: the palette's swatches, a tool
+/// bar's, or on iPad the Pencil's palette, with the tool rail perhaps put away for Full Screen Canvas.
+struct ColorPickerPresenter: ViewModifier {
+    let session: EditorSession
+    @State private var pickerPanel = ColorPickerPanelController()
+    func body(content: Content) -> some View {
+        content.onChange(of: session.colorPicker.map(ObjectIdentifier.init)) { _, _ in
+            if let picker = session.colorPicker { pickerPanel.show(picker, session: session) }
+            else { pickerPanel.close() }
+        }
     }
 }

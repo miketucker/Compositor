@@ -1,7 +1,11 @@
-import AppKit
 import CoreImage
 import Metal
 import QuartzCore
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// The canvas composited on the GPU. Core Graphics composites every layer on the CPU, about 5 ms for each full-size
 /// layer on a Retina screen, on every frame of a drag, pan or zoom; here the layers stay on the GPU as textures and a
@@ -331,9 +335,10 @@ import QuartzCore
 }
 
 /// The GPU canvas's surface: a Metal layer under the canvas's overlays, shown while the GPU draws the canvas.
-final class MetalCanvasView: NSView {
+final class MetalCanvasView: PlatformView {
     var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
 
+    #if os(macOS)
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
@@ -343,6 +348,25 @@ final class MetalCanvasView: NSView {
 
     override func makeBackingLayer() -> CALayer {
         let layer = CAMetalLayer()
+        Self.configure(layer)
+        return layer
+    }
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+    // Clicks go to the canvas behind it.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    #else
+    override class var layerClass: AnyClass { CAMetalLayer.self }
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        Self.configure(metalLayer)
+        // Touches go to the canvas behind it.
+        isUserInteractionEnabled = false
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    #endif
+
+    private static func configure(_ layer: CAMetalLayer) {
         layer.device = GPUCanvasRenderer.shared?.device
         layer.pixelFormat = .bgra8Unorm
         layer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
@@ -350,12 +374,7 @@ final class MetalCanvasView: NSView {
         layer.framebufferOnly = false
         layer.presentsWithTransaction = true
         layer.isOpaque = true
-        return layer
     }
-    override var isFlipped: Bool { true }
-    override var isOpaque: Bool { false }
-    // Clicks go to the canvas behind it.
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     /// Sizes the drawable to the view in screen pixels.
     func fit(scale: CGFloat) {

@@ -1,6 +1,10 @@
-import AppKit
+import CoreGraphics
+import Foundation
 import Observation
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 @MainActor
 final class ProjectTab: Identifiable {
@@ -21,7 +25,12 @@ final class ProjectWorkspace {
     private(set) var tabs: [ProjectTab] = []
     private(set) var selectedID: UUID
     var isManaging = false
+    #if os(macOS)
     @ObservationIgnored weak var window: NSWindow?
+    #else
+    /// The scene the tabs are shown in, which presents their dialogs.
+    @ObservationIgnored weak var dialogs: SceneDialogs?
+    #endif
     @ObservationIgnored private var nextNumber = 2
     var current: ProjectTab { tabs.first { $0.id == selectedID } ?? tabs[0] }
     var canSwitch: Bool {
@@ -40,7 +49,7 @@ final class ProjectWorkspace {
         if reuseEmpty, tabs.count == 1, current.session.document == nil { return current }
         let tab = ProjectTab(name: "Untitled \(nextNumber)")
         nextNumber += 1
-        tab.controller.workspace = self; tab.controller.window = window
+        tab.controller.workspace = self; attach(tab.controller)
         tabs.append(tab); selectedID = tab.id
         return tab
     }
@@ -57,7 +66,7 @@ final class ProjectWorkspace {
         guard id != selectedID, canSwitch, tabs.contains(where: { $0.id == id }) else { return }
         current.session.commitTransform()
         selectedID = id
-        current.controller.window = window
+        attach(current.controller)
         current.controller.resumeExternalChangeCheck()
     }
     func newCanvas() {
@@ -72,13 +81,8 @@ final class ProjectWorkspace {
         defer { isManaging = false }
         var urls = suppliedURL.map { [$0] } ?? []
         if urls.isEmpty {
-            let panel = NSOpenPanel()
-            panel.allowedContentTypes = [.compositorProject]
-            panel.allowsMultipleSelection = true
-            panel.treatsFilePackagesAsDirectories = false
-            let response = if let window { await panel.beginSheetModal(for: window) } else { await panel.begin() }
-            guard response == .OK else { return false }
-            urls = panel.urls
+            urls = await chooseProjectsToOpen()
+            guard !urls.isEmpty else { return false }
         }
         var opened = false
         for url in urls { opened = await loadProject(url) || opened }
@@ -90,7 +94,7 @@ final class ProjectWorkspace {
         }
         // Load into an unattached session, so a failed open never leaves a broken tab.
         let tab = ProjectTab(name: url.deletingPathExtension().lastPathComponent)
-        tab.controller.window = window
+        attach(tab.controller)
         guard await tab.controller.open(url) else { return false }
         if tabs.count == 1, current.session.document == nil { tabs.removeAll() }
         tab.controller.workspace = self; tabs.append(tab); selectedID = tab.id
@@ -100,15 +104,21 @@ final class ProjectWorkspace {
         guard canSwitch, let tab = tabs.first(where: { $0.id == id }) else { return }
         isManaging = true
         defer { isManaging = false }
-        tab.controller.window = window
+        attach(tab.controller)
         guard await tab.controller.confirmQuit() else { return }
         removeTab(id)
     }
     func removeTab(_ id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        // Its project is closed: nothing more to watch on disk, or to keep hold of.
+        tabs[index].controller.stopWatchingProject()
         tabs.remove(at: index)
         if tabs.isEmpty { _ = addTab(reuseEmpty: false) }
         else if selectedID == id { selectedID = tabs[min(index, tabs.count-1)].id }
+    }
+    /// Starts over with one empty tab, once the window's projects have all been closed.
+    func removeAllTabs() {
+        tabs.removeAll(); _ = addTab(reuseEmpty: false)
     }
     /// The order Quit (and closing the window) asks about unsaved projects: the tab on screen first,
     /// then the rest left to right, so it never jumps to another project before the one you're viewing.
@@ -138,20 +148,14 @@ final class ProjectWorkspace {
     func confirmQuit() async -> Bool {
         guard !isManaging, finishTextEditing() else { return false }
         await settlePendingEdits()
-        guard canSwitch else { NSSound.beep(); return false }
+        guard canSwitch else { Feedback.beep(); return false }
         isManaging = true; defer { isManaging = false }
         for tab in quitOrder {
-            selectedID = tab.id; tab.controller.window = window
+            selectedID = tab.id; attach(tab.controller)
             guard await tab.controller.confirmQuit() else { return false }
         }
         return true
     }
-    func closeWindow(_ window: NSWindow) async {
-        guard await confirmQuit() else { return }
-        tabs.removeAll(); _ = addTab(reuseEmpty: false)
-        window.close()
-    }
-
     /// Capture the destination before asynchronous provider loading. Dock/new-tab
     /// drops create one project per image; existing-tab drops add image layers.
     func receive(_ urls: [URL], into destination: UUID? = nil, at point: CGPoint? = nil) async {
@@ -191,7 +195,7 @@ final class ProjectWorkspace {
     /// Cmd-V with a whole layer copied: pastes it complete — a copy above it in its own project, or brought over as
     /// dragging it onto this tab does. False when there is none, and Paste goes on with pixels.
     func pasteCopiedLayer() -> Bool {
-        let count = NSPasteboard.general.changeCount
+        let count = Clipboard.changeCount
         guard let source = tabs.first(where: { $0.session.copiedLayer?.changeCount == count }),
               let copied = source.session.copiedLayer?.ids, let layers = source.session.document?.layers else { return false }
         let ids = copied.filter { id in layers.contains { $0.id == id } }

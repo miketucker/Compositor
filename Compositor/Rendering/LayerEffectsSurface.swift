@@ -1,5 +1,6 @@
-import AppKit
+import CoreGraphics
 import CoreImage
+import Foundation
 
 /// A layer's effects kept at full resolution while it is painted, and brought up to date only where the paint
 /// changed. Rebuilding every effect over a whole layer for each dab is what made painting drag; the cost here

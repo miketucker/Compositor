@@ -1,4 +1,5 @@
-import AppKit
+import CoreGraphics
+import Foundation
 
 /// Carries a CGImage out of a detached task.
 nonisolated private struct Box: @unchecked Sendable {
@@ -205,7 +206,7 @@ extension EditorSession {
 
     /// Cmd-arrow: moves the selected pixels 1 px (10 px with Shift) as one undo step.
     func nudgePixels(dx: CGFloat, dy: CGFloat) async {
-        guard beginPixelMove() else { NSSound.beep(); return }
+        guard beginPixelMove() else { Feedback.beep(); return }
         movePixels(by: CGSize(width: dx, height: dy))
         await finishPixelMove()
     }

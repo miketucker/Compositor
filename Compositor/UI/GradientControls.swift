@@ -11,12 +11,16 @@ struct GradientControls: View {
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize()
             .help("Linear runs along the line; Radial spreads out from the start point")
+            #if !os(macOS)
+            ToolOptionButton(session: session)
+            #endif
             swatch
             Picker("Colors", selection: $session.gradientSettings.style) {
                 ForEach(GradientStyle.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
             .labelsHidden().fixedSize()
             Toggle("Reverse", isOn: $session.gradientSettings.reversed)
+            #if os(macOS)
             Text("Opacity").scrubbable(sensitivity: 0.01, value: $session.gradientSettings.opacity, range: 0.01...1)
             Slider(value: $session.gradientSettings.opacity, in: 0.01...1).frame(width: 100)
             TextField("Opacity", value: Binding<Double>(get: { Double(session.gradientSettings.opacity * 100) },
@@ -27,6 +31,11 @@ struct GradientControls: View {
                             change: { session.gradientSettings.opacity = CGFloat(min(100, max(1, $0)) / 100) })
                 .help("Press 1–9 for 10–90%, 0 for 100%")
                 .unitSuffix("%")
+            #else
+            HeaderValue(title: "Opacity", value: Binding(get: { Double(session.gradientSettings.opacity * 100) },
+                                                         set: { session.gradientSettings.opacity = CGFloat($0 / 100) }),
+                        range: 1...100, unit: "%", slider: 1...100)
+            #endif
             Spacer(minLength: 0)
             if session.isMaskSelected { Text("Mask").foregroundStyle(.secondary) }
             if session.gradientEdit != nil {

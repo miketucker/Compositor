@@ -43,7 +43,7 @@ struct LayersPanel: View {
                         Button(kind.rawValue + "…") { session.addEffect(kind) }
                     }
                 } label: { Image(systemName: "sparkles").footerHitArea() }
-                    .menuStyle(.borderlessButton).fixedSize()
+                    .borderlessMenu().fixedSize()
                     .help("Layer effects: stroke and drop shadow").accessibilityLabel("Layer effects")
                     .accessibilityIdentifier("layerEffects").disabled(!session.canEditEffects)
                 Menu {
@@ -51,7 +51,7 @@ struct LayersPanel: View {
                         Button(kind.rawValue) { session.addAdjustment(kind) }
                     }
                 } label: { Image(systemName: "circle.lefthalf.filled").footerHitArea() }
-                    .menuStyle(.borderlessButton).fixedSize().help("New adjustment layer").disabled(!session.canEditLayers)
+                    .borderlessMenu().fixedSize().help("New adjustment layer").disabled(!session.canEditLayers)
                 Spacer()
                 Button { session.deleteLayerOrMask() } label: { Image(systemName: "trash").footerHitArea() }
                     .help(session.selectedEffect != nil ? "Delete selected effect" : session.isMaskSelected ? "Delete layer mask" : session.selectedLayerIDs.count > 1 ? "Delete selected layers" : "Delete selected layer")

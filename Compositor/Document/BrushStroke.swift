@@ -1,4 +1,5 @@
-import AppKit
+import CoreGraphics
+import Foundation
 
 nonisolated enum SpotHealingMode: String, CaseIterable, Sendable, Hashable {
     case contentAware = "Content-Aware"
@@ -24,6 +25,23 @@ nonisolated struct BrushSettings: Sendable {
     var erasing = false
     var healing = false
     var healingMode: SpotHealingMode = .contentAware
+    /// What the Pencil's pressure changes along the stroke (none for a mouse or a finger, which press at full strength).
+    var pressure: BrushPressure = []
+}
+
+/// What the Pencil's pressure changes as the Brush paints: its size, its opacity, or both, from a sliver at the
+/// lightest touch up to the brush's own setting at the firmest.
+nonisolated struct BrushPressure: OptionSet, Sendable, Hashable {
+    let rawValue: Int
+    static let size = BrushPressure(rawValue: 1 << 0)
+    static let opacity = BrushPressure(rawValue: 1 << 1)
+}
+
+/// A point a stroke passes through, in document pixels, and how firmly the Pencil pressed there: 0–1, and 1 for the
+/// mouse, a finger or the trackpad, which can't tell.
+nonisolated struct BrushSample: Equatable, Sendable {
+    var point: CGPoint
+    var pressure: CGFloat = 1
 }
 
 nonisolated struct BrushPatch: @unchecked Sendable {
@@ -168,6 +186,11 @@ final class BrushStroke {
     private var allocatedBounds: CGRect?
     private var previous: CGPoint?
     private var samples: [CGPoint] = []
+    /// The pressure at each of `samples`.
+    private var pressures: [CGFloat] = []
+    /// The stroke's first dab, kept provisional until the stroke moves on or ends, so it takes the firmest pressure
+    /// the Pencil reaches before then: a tap's dot comes out at the size of the tap, not of its first light contact.
+    private var startPending = false
     /// Coverage under the provisional tail; nil where the tile had no coverage yet.
     private var tailBackup: [Int: CGImage?] = [:]
     private var distanceToNext: CGFloat = 0
@@ -271,13 +294,13 @@ final class BrushStroke {
     /// than straight chords. A curve piece needs the sample after it, so the newest piece
     /// is first drawn as a provisional straight tail (the stroke never trails the cursor),
     /// then erased and replaced by the curve when the next sample arrives or on `flush()`.
-    func append(_ point: CGPoint) throws {
+    func append(_ point: CGPoint, pressure: CGFloat = 1) throws {
         guard point.x.isFinite, point.y.isFinite, abs(point.x) <= 10_000_000, abs(point.y) <= 10_000_000 else { return }
+        if gpu != nil { try appendContinuous(BrushSample(point: point, pressure: pressure)); return }
+        // Drawn without the GPU, a stroke keeps one tip throughout, so pressure plays no part.
         guard samples.last != point else { return }
-        if gpu != nil { try appendContinuous(point); return }
         var changed = removeTail()
-        samples.append(point)
-        if samples.count > 4 { samples.removeFirst() }
+        remember(BrushSample(point: point))
         let count = samples.count
         if count == 1 {
             try walk(to: point, changed: &changed)
@@ -289,6 +312,79 @@ final class BrushStroke {
         try publish(changed)
     }
 
+    /// Several samples at once — the Pencil's, which arrive four or more to a frame — laid down in one pass, as if
+    /// appended one by one: the same curve through each, with the provisional tail only to the last. `predicted` carries
+    /// the tail on to where the Pencil is expected next, so the stroke keeps up with it on screen; like the rest of the
+    /// tail, it's replaced by what's actually drawn when the next samples come.
+    func append(_ points: [BrushSample], predicted: [BrushSample] = []) throws {
+        guard gpu != nil, points.count > 1 || !predicted.isEmpty else {
+            for sample in points { try append(sample.point, pressure: sample.pressure) }
+            return
+        }
+        var settled: [MetalBrushCoverage.Segment] = []
+        var added = false
+        for sample in points {
+            let point = sample.point
+            guard point.x.isFinite, point.y.isFinite, abs(point.x) <= 10_000_000, abs(point.y) <= 10_000_000 else { continue }
+            if samples.last == point { added = firmerStart(sample) || added; continue }
+            remember(sample)
+            settled += settledPieces()
+            added = true
+        }
+        guard added || !predicted.isEmpty, let last = samples.last else { return }
+        var tail = provisionalTail()
+        var from = BrushSample(point: last, pressure: pressures[pressures.count - 1])
+        for next in predicted where next.point.x.isFinite && next.point.y.isFinite && next.point != from.point {
+            tail.append(segment(from, next))
+            from = next
+        }
+        try renderContinuous(settled: settled, tail: tail)
+    }
+
+    /// Takes in the next sample, keeping the last four, which the curve through them needs.
+    private func remember(_ sample: BrushSample) {
+        if samples.isEmpty { startPending = true }
+        samples.append(sample.point)
+        pressures.append(sample.pressure)
+        if samples.count > 4 {
+            samples.removeFirst()
+            pressures.removeFirst()
+        }
+    }
+
+    /// The Pencil pressing harder where the stroke began, before it has moved: the first dab grows to match.
+    private func firmerStart(_ sample: BrushSample) -> Bool {
+        guard startPending, samples.count == 1, sample.pressure > pressures[0] else { return false }
+        pressures[0] = sample.pressure
+        return true
+    }
+
+    /// What the newest sample settles: the first dab once the stroke moves on from it, then each curve piece once the
+    /// sample after it is known.
+    private func settledPieces() -> [MetalBrushCoverage.Segment] {
+        let n = samples.count
+        var settled: [MetalBrushCoverage.Segment] = []
+        if n >= 2, startPending {
+            let start = sample(0)
+            settled.append(segment(start, start))
+            startPending = false
+        }
+        if n >= 3 {
+            settled += continuousCurve(from: sample(n - 3), to: sample(n - 2), before: sample(max(0, n - 4)), after: sample(n - 1))
+        }
+        return settled
+    }
+
+    /// Drawn now and replaced when the next samples come: the first dab while it's still pending, and the straight
+    /// piece to the newest sample.
+    private func provisionalTail() -> [MetalBrushCoverage.Segment] {
+        let n = samples.count
+        if n == 1 { return startPending ? [segment(sample(0), sample(0))] : [] }
+        return n >= 2 ? [segment(sample(n - 2), sample(n - 1))] : []
+    }
+
+    private func sample(_ index: Int) -> BrushSample { BrushSample(point: samples[index], pressure: pressures[index]) }
+
     /// Replaces the provisional tail with the stroke's final curve piece. Safe to repeat.
     func flush() throws {
         if gpu != nil { try flushContinuous(); return }
@@ -298,40 +394,61 @@ final class BrushStroke {
             try curve(from: samples[count - 2], to: samples[count - 1],
                       before: samples[max(0, count - 3)], after: samples[count - 1], changed: &changed)
             samples = [samples[count - 1]]
+            pressures = [pressures[count - 1]]
         }
         try publish(changed)
     }
 
-    private func appendContinuous(_ point: CGPoint) throws {
-        samples.append(point)
-        if samples.count > 4 { samples.removeFirst() }
-        let n = samples.count
-        var settled: [SIMD4<Float>] = []
-        if n == 1 { settled = [segment(point, point)] }
-        else if n >= 3 {
-            settled = continuousCurve(from: samples[n - 3], to: samples[n - 2],
-                before: samples[max(0, n - 4)], after: point)
+    private func appendContinuous(_ sample: BrushSample) throws {
+        if samples.last == sample.point {
+            if firmerStart(sample) { try renderContinuous(settled: [], tail: provisionalTail()) }
+            return
         }
-        let tail = n >= 2 ? [segment(samples[n - 2], point)] : []
-        try renderContinuous(settled: settled, tail: tail)
+        remember(sample)
+        try renderContinuous(settled: settledPieces(), tail: provisionalTail())
     }
 
     private func flushContinuous() throws {
         let n = samples.count
+        // A tap: its dab, at the firmest the Pencil pressed.
+        if n == 1, startPending {
+            startPending = false
+            try renderContinuous(settled: [segment(sample(0), sample(0))], tail: [])
+            return
+        }
         guard n >= 2 else { return }
-        let settled = continuousCurve(from: samples[n - 2], to: samples[n - 1],
-            before: samples[max(0, n - 3)], after: samples[n - 1])
+        let settled = continuousCurve(from: sample(n - 2), to: sample(n - 1), before: sample(max(0, n - 3)), after: sample(n - 1))
         try renderContinuous(settled: settled, tail: [])
         samples = [samples[n - 1]]
+        pressures = [pressures[n - 1]]
     }
 
-    private func segment(_ a: CGPoint, _ b: CGPoint) -> SIMD4<Float> {
-        SIMD4(Float(a.x), Float(a.y), Float(b.x), Float(b.y))
+    /// A straight piece of the stroke, with the tip's radius and strength at each end.
+    private func segment(_ a: BrushSample, _ b: BrushSample) -> MetalBrushCoverage.Segment {
+        let start = tip(at: a.pressure), end = tip(at: b.pressure)
+        return MetalBrushCoverage.Segment(ends: SIMD4(Float(a.point.x), Float(a.point.y), Float(b.point.x), Float(b.point.y)),
+                                          dynamics: SIMD4(start.radius, end.radius, start.strength, end.strength))
+    }
+
+    /// The lightest touch still paints, as a sliver.
+    static let minimumPressure: CGFloat = 0.02
+
+    /// The tip's radius (in document pixels) and strength at `pressure`: as set, unless the stroke follows the Pencil.
+    private func tip(at pressure: CGFloat) -> (radius: Float, strength: Float) {
+        let firmness = min(1, max(Self.minimumPressure, pressure.isFinite ? pressure : 1))
+        let radius = settings.diameter / 2 * (settings.pressure.contains(.size) ? firmness : 1)
+        return (Float(radius), Float(settings.pressure.contains(.opacity) ? firmness : 1))
     }
 
     /// Adaptive chord subdivision keeps the centerline within 0.2 document pixels
     /// of the spline. Straight movement requires just one segment even at 4K.
-    private func continuousCurve(from start: CGPoint, to end: CGPoint, before: CGPoint, after: CGPoint) -> [SIMD4<Float>] {
+    private func continuousCurve(from startSample: BrushSample, to endSample: BrushSample, before beforeSample: BrushSample,
+                                 after afterSample: BrushSample) -> [MetalBrushCoverage.Segment] {
+        let start = startSample.point, end = endSample.point, before = beforeSample.point, after = afterSample.point
+        // Pressure changes evenly along the piece, from the sample at its start to the one at its end.
+        func sample(_ p: CGPoint, _ u: CGFloat) -> BrushSample {
+            BrushSample(point: p, pressure: startSample.pressure + (endSample.pressure - startSample.pressure) * u)
+        }
         func knot(_ t: CGFloat, _ a: CGPoint, _ b: CGPoint) -> CGFloat { t + max(0.0001, sqrt(hypot(b.x - a.x, b.y - a.y))) }
         func mix(_ a: CGPoint, _ b: CGPoint, _ ta: CGFloat, _ tb: CGFloat, _ t: CGFloat) -> CGPoint {
             let wa = (tb - t) / (tb - ta), wb = (t - ta) / (tb - ta)
@@ -344,7 +461,7 @@ final class BrushStroke {
             let a = mix(before, start, t0, t1, t), b = mix(start, end, t1, t2, t), c = mix(end, after, t2, t3, t)
             return mix(mix(a, b, t0, t2, t), mix(b, c, t1, t3, t), t1, t2, t)
         }
-        var result: [SIMD4<Float>] = []
+        var result: [MetalBrushCoverage.Segment] = []
         func subdivide(_ a: CGPoint, _ b: CGPoint, _ lo: CGFloat, _ hi: CGFloat, _ depth: Int) {
             let dx = b.x - a.x, dy = b.y - a.y, lengthSquared = dx * dx + dy * dy
             func error(_ p: CGPoint) -> CGFloat {
@@ -353,7 +470,7 @@ final class BrushStroke {
             }
             let mid = (lo + hi) / 2, m = point(mid)
             let deviation = max(error(m), error(point((lo + mid) / 2)), error(point((mid + hi) / 2)))
-            if deviation <= 0.2 || depth >= 10 { result.append(segment(a, b)); return }
+            if deviation <= 0.2 || depth >= 10 { result.append(segment(sample(a, lo), sample(b, hi))); return }
             subdivide(a, m, lo, mid, depth + 1)
             subdivide(m, b, mid, hi, depth + 1)
         }
@@ -361,12 +478,13 @@ final class BrushStroke {
         return result
     }
 
-    private func continuousKeys(_ segments: [SIMD4<Float>]) -> Set<Int> {
+    private func continuousKeys(_ segments: [MetalBrushCoverage.Segment]) -> Set<Int> {
         var keys = Set<Int>()
         let reach = settings.diameter / 2 + 2
         let inverse = pixelToDocument.inverted()
         let columns = (width + Self.tileSize - 1) / Self.tileSize
-        for s in segments {
+        for segment in segments {
+            let s = segment.ends
             let box = CGRect(x: CGFloat(min(s.x, s.z)), y: CGFloat(min(s.y, s.w)),
                 width: CGFloat(abs(s.z - s.x)), height: CGFloat(abs(s.w - s.y)))
                 .insetBy(dx: -reach, dy: -reach).intersection(canvas)
@@ -382,7 +500,7 @@ final class BrushStroke {
         return keys
     }
 
-    private func renderContinuous(settled: [SIMD4<Float>], tail: [SIMD4<Float>]) throws {
+    private func renderContinuous(settled: [MetalBrushCoverage.Segment], tail: [MetalBrushCoverage.Segment]) throws {
         guard let gpu else { return }
         let tailKeys = continuousKeys(tail)
         let changed = continuousKeys(settled).union(tailKeys).union(gpuTailKeys)

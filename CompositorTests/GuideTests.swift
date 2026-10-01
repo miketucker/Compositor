@@ -215,10 +215,10 @@ struct GuideTests {
     }
 
     @Test func rulerStepUsesNicePixelIntervals() {
-        #expect(CanvasRulerNSView.majorStep(pointsPerPixel: 1) == 100)
-        #expect(CanvasRulerNSView.majorStep(pointsPerPixel: 8) == 10)
-        #expect(CanvasRulerNSView.label(0) as String == "0")
-        #expect(CanvasRulerNSView.label(250) as String == "250")
+        #expect(CanvasRulerStrip.majorStep(pointsPerPixel: 1) == 100)
+        #expect(CanvasRulerStrip.majorStep(pointsPerPixel: 8) == 10)
+        #expect(CanvasRulerStrip.label(0) as String == "0")
+        #expect(CanvasRulerStrip.label(250) as String == "250")
     }
 
     @Test func drawnPointsSnapToTheSnapToTargets() throws {

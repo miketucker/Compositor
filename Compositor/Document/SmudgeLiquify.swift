@@ -1,4 +1,5 @@
-import AppKit
+import CoreGraphics
+import Foundation
 
 /// The Blur tool's modes. Smudge and Liquify push the active layer's pixels around under the brush.
 /// The Brush tool's modes.

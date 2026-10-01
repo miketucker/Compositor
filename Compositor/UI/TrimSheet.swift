@@ -22,7 +22,7 @@ struct TrimSheet: View {
                     }
                 }
                 .labelsHidden()
-                .pickerStyle(.radioGroup)
+                .radioGroupPicker()
             }
 
             Divider()

@@ -1,5 +1,7 @@
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 
 /// Photoshop-style picker: saturation/brightness field, vertical hue strip,
 /// new/current preview, RGB and hex entry. Lives in a movable floating panel so
@@ -168,7 +170,9 @@ extension PaletteColor {
 /// Hosts the picker in the shared floating panel: first opened centered on the canvas,
 /// afterwards wherever it was last left. Closing it with the title-bar button cancels.
 final class ColorPickerPanelController: NSObject {
+    #if os(macOS)
     static let identifier = NSUserInterfaceItemIdentifier("colorPickerPanel")
+    #endif
     private let panel = FloatingPanelController(name: "colorPickerPanel")
     private weak var session: EditorSession?
 
@@ -186,7 +190,7 @@ final class ColorPickerPanelController: NSObject {
     func close() { panel.close() }
 
     /// Returns keyboard focus to the picker after a click on the canvas sampled a color.
-    static func refocus() { FloatingPanelController.refocus(identifier) }
+    static func refocus() { FloatingPanelController.refocus(named: "colorPickerPanel") }
 }
 
 /// A dialog's color swatch, drawn as the brush's: clicking it opens the app's picker on `color`, which follows the

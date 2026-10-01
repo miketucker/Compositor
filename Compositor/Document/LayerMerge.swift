@@ -1,4 +1,5 @@
-import AppKit
+import CoreGraphics
+import Foundation
 
 extension EditorSession {
     /// What ⌘E merges, in stacking order, and where the result goes; nil when there is nothing to merge.
@@ -50,7 +51,7 @@ extension EditorSession {
         let canvas = LayerTransform(origin: .zero, size: CGSize(width: document.width, height: document.height))
         guard let full = context.makeImage(),
               let trimmed = try? PixelFilter.trimmed(full, placed: canvas),
-              let thumbnail = try? PixelAdjust.thumbnail(of: trimmed.image) else { NSSound.beep(); return }
+              let thumbnail = try? PixelAdjust.thumbnail(of: trimmed.image) else { Feedback.beep(); return }
         var merged = ImageLayer(asset: ImportedImage(image: trimmed.image, thumbnail: thumbnail, name: plan.name),
                                 origin: trimmed.transform.origin)
         merged.transform = trimmed.transform
@@ -62,7 +63,7 @@ extension EditorSession {
         let slot = layers.firstIndex { $0.id == plan.anchor } ?? layers.count
         let insertion = slot - layers[..<slot].filter { plan.removed.contains($0.id) }.count
         next.insert(merged, at: min(max(0, insertion), next.count))
-        guard (try? LayerHierarchy.validate(next.map(\.hierarchyRecord))) != nil else { NSSound.beep(); return }
+        guard (try? LayerHierarchy.validate(next.map(\.hierarchyRecord))) != nil else { Feedback.beep(); return }
         finishOpacityEdit()
         beginEdit(plan.action)
         self.document?.layers = next

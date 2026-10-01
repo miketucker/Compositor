@@ -1,5 +1,6 @@
-import AppKit
+import CoreGraphics
 import CoreImage
+import Foundation
 
 /// A document-space selection outline, clipped to the canvas. `nil` on the document
 /// means no selection; a selection whose path is empty is an explicit empty selection,

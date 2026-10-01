@@ -1,6 +1,8 @@
-import SwiftUI
-import AppKit
 import ImageIO
+import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct NewCanvasSheet: View {
     let session: EditorSession
@@ -79,7 +81,10 @@ struct NewCanvasSheet: View {
                     height = String(size.height)
                 }
             }
+            // On iPad a focused field brings up the keyboard over the canvas, so the field waits for a tap there.
+            #if os(macOS)
             focusedField = .width
+            #endif
         }
     }
     /// The preset the fields match, or nil (Custom); choosing one fills them in.
@@ -88,6 +93,7 @@ struct NewCanvasSheet: View {
                 set: { if let chosen = $0 { width = String(chosen.width); height = String(chosen.height) } })
     }
 
+    #if os(macOS)
     static func clipboardDimensions(_ pasteboard: NSPasteboard = .general) -> (width: Int, height: Int)? {
         for type in [NSPasteboard.PasteboardType.png, .tiff] {
             guard let data = pasteboard.data(forType: type),
@@ -104,6 +110,10 @@ struct NewCanvasSheet: View {
         }
         return nil
     }
+    #else
+    /// iPad asks before an app reads what another app copied, so there the size isn't suggested from the clipboard.
+    static func clipboardDimensions() -> (width: Int, height: Int)? { nil }
+    #endif
     private func dimension(_ title: String, text: Binding<String>, field: Field) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.callout.weight(.medium))

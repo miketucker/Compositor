@@ -14,7 +14,11 @@ struct ShapeControls: View {
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize()
             .help("Shift-U (or Tab) steps through Rectangle, Ellipse and Line")
+            #if !os(macOS)
+            ToolOptionButton(session: session)
+            #endif
             if session.shapeKind == .line {
+                #if os(macOS)
                 HStack(spacing: 6) {
                     Text("Width").scrubbable(sensitivity: 1, value: $session.shapeLineWidth, range: 1...5000)
                     Slider(value: Binding(get: { min(100, session.shapeLineWidth) },
@@ -28,8 +32,13 @@ struct ShapeControls: View {
                                     change: { session.shapeLineWidth = min(5000, max(1, $0)) })
                         .unitSuffix("px")
                 }
+                #else
+                HeaderValue(title: "Width", value: Binding(get: { session.shapeLineWidth }, set: { session.shapeLineWidth = $0 }),
+                            range: 1...5000, unit: "px", slider: 1...500, logarithmic: true)
+                #endif
             }
             if session.shapeKind == .rectangle {
+                #if os(macOS)
                 HStack(spacing: 6) {
                     Text("Radius").scrubbable(sensitivity: 1, value: $session.shapeCornerRadius, range: 0...5000)
                     Slider(value: Binding(get: { min(200, session.shapeCornerRadius) },
@@ -44,12 +53,17 @@ struct ShapeControls: View {
                         .unitSuffix("px")
                 }
                 .help("Round the rectangle's corners by this many pixels; 0 keeps them square")
+                #else
+                HeaderValue(title: "Radius", value: Binding(get: { Double(session.shapeCornerRadius) },
+                                                            set: { session.shapeCornerRadius = CGFloat($0) }),
+                            range: 0...5000, unit: "px", slider: 0...200)
+                #endif
             }
             HStack(spacing: 6) {
                 Text("Fill")
                 Button { session.openColorPicker(background: false) } label: {
                     let swatch = RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    swatch.fill(Color(nsColor: session.foregroundColor.nsColor))
+                    swatch.fill(session.foregroundColor.swiftUI)
                         .overlay { swatch.strokeBorder(.black.opacity(0.5), lineWidth: 1) }
                         .frame(width: 36, height: 18)
                 }

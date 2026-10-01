@@ -17,16 +17,27 @@ struct TransformInspector: View {
               .accessibilityIdentifier("transformAutoSelect")
           Toggle("Show Controls", isOn: $session.showsTransformControls)
               .help("Show the transform box and handles (⌘H). When hidden, drag anywhere to move the layer.")
-          ScrollView(.horizontal) {
+          #if !os(macOS)
+          ToolOptionButton(session: session)
+          #endif
+          HeaderOverflow {
             HStack(spacing: 12) {
+                #if os(macOS)
                 field("X", value: value.origin.x) { $0.origin.x = $1 }.frame(width: 85)
                 field("Y", value: value.origin.y) { $0.origin.y = $1 }.frame(width: 85)
                 TransformValueField(label: "W", value: value.size.width, range: 1...30_000, finish: finish) { resize($0, width: true) }.frame(width: 85)
                 TransformValueField(label: "H", value: value.size.height, range: 1...30_000, finish: finish) { resize($0, width: false) }.frame(width: 85)
+                #else
+                number("X", value.origin.x) { number in change { $0.origin.x = number } }
+                number("Y", value.origin.y) { number in change { $0.origin.y = number } }
+                number("W", value.size.width, range: 1...30_000) { resize($0, width: true) }
+                number("H", value.size.height, range: 1...30_000) { resize($0, width: false) }
+                #endif
                 // Shift flips the lock while dragging a handle, and the button shows it flipped.
                 Toggle(isOn: Binding(get: { session.locksTransformRatio != held.contains(.shift) },
                                      set: { session.locksTransformRatio = $0 != held.contains(.shift) })) { Image(systemName: "link") }
                     .toggleStyle(.button).help("Lock aspect ratio. Hold Shift while dragging a handle to turn it the other way.")
+                #if os(macOS)
                 TransformValueField(label: "Scale", suffix: "%", value: value.scalePercent(pixelSize: pixelSize), range: 0.1...30_000, finish: finish) { number in
                     change { value in
                         guard number > 0 else { return }
@@ -34,6 +45,18 @@ struct TransformInspector: View {
                     }
                 }.frame(width: 110).help("Scale width and height together, about the center")
                 field("°", value: value.rotation, range: -360...360) { $0.rotation = $1.truncatingRemainder(dividingBy: 360) }.frame(width: 75)
+                #else
+                number("Scale", value.scalePercent(pixelSize: pixelSize), range: 0.1...30_000, unit: "%", slider: 1...800,
+                       logarithmic: true, fractionDigits: 1) { number in
+                    change { value in
+                        guard number > 0 else { return }
+                        value = value.scaled(toPercent: number, pixelSize: pixelSize)
+                    }
+                }
+                number("Rotation", value.rotation, range: -360...360, unit: "°", slider: -180...180, fractionDigits: 1) { number in
+                    change { $0.rotation = number.truncatingRemainder(dividingBy: 360) }
+                }
+                #endif
                 Picker("Sampling", selection: Binding(get: { value.sampling }, set: { sampling in
                     change { $0.sampling = sampling }
                 })) {
@@ -45,7 +68,7 @@ struct TransformInspector: View {
             // Numbers describe an ordinary transform; while distorted, the handles are the controls.
             }.disabled((!session.canTransform && session.transformEdit == nil) || session.transformEdit?.corners != nil)
                 .padding(.horizontal, 18)
-          }.scrollIndicators(.hidden)
+          }
           // Only an edit that waits for them — typed values, ⌘T, a distortion — has anything to cancel or apply. A
           // handle drag applies itself on release, and ghosted buttons after it read as the pixels being resampled,
           // which they never are. Left in place unseen, so Escape and Return still reach a drag in progress.
@@ -62,12 +85,22 @@ struct TransformInspector: View {
     }
 
     /// 100% scale: the layer's pixels (a blank layer's size before this edit, so typing doesn't compound).
-    private var held: NSEvent.ModifierFlags { HeldModifiers.shared.flags }
+    private var held: KeyModifiers { HeldModifiers.shared.flags }
     private var pixelSize: CGSize { session.transformPixelSize ?? session.activeLayer?.size ?? value.size }
     private func field(_ label: String, value: CGFloat, range: ClosedRange<CGFloat> = -30_000...30_000,
                        set: @escaping (inout LayerTransform, CGFloat) -> Void) -> some View {
         TransformValueField(label: label, value: value, range: range, finish: finish) { number in change { set(&$0, number) } }
     }
+    #if !os(macOS)
+    /// A value of the transform set by touch (see `HeaderValue`): shown on the canvas as it changes, and applied once
+    /// the popover closes or the slider is let go, as `finish` applies a field's.
+    private func number(_ title: String, _ current: CGFloat, range: ClosedRange<Double> = -30_000...30_000, unit: String = "px",
+                        slider: ClosedRange<Double>? = nil, logarithmic: Bool = false, fractionDigits: Int = 0,
+                        set: @escaping (CGFloat) -> Void) -> some View {
+        HeaderValue(title: title, value: Binding(get: { Double(current) }, set: { set(CGFloat($0)) }), range: range, unit: unit,
+                    slider: slider, logarithmic: logarithmic, fractionDigits: fractionDigits, onEnd: finish)
+    }
+    #endif
     /// A value typed, stepped or dragged shows on the canvas as it changes, and is applied without Cancel or Apply —
     /// a transform never resamples the layer's pixels, so there is nothing to confirm — as one undo step once the
     /// field is done with it (see `finish`), as a handle drag is when it's let go. An edit already waiting for Apply —

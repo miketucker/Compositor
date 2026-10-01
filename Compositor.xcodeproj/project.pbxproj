@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		5A9C0D1E2F3A4B5C6D7E8F01 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5A9C0D1E2F3A4B5C6D7E8F03 /* Sparkle */; };
+		5A9C0D1E2F3A4B5C6D7E8F01 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = 5A9C0D1E2F3A4B5C6D7E8F03 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -407,6 +407,27 @@
 		8F311FBB304F03BC0017D14F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "Config/Compositor-iPadOS.entitlements";
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphone*]" = "*/Compositor/macOS/*";
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]" = "*/Compositor/iPadOS/*";
+				"INFOPLIST_FILE[sdk=iphone*]" = "Config/Info-iPadOS.plist";
+				"INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription[sdk=iphone*]" = "Compositor saves exported images to your photo library.";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphone*]" = NO;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphone*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphone*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphone*]" = UIStatusBarStyleLightContent;
+				"INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad[sdk=iphone*]" = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 2;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/Compositor.entitlements;
@@ -447,6 +468,27 @@
 		8F311FBC304F03BC0017D14F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "Config/Compositor-iPadOS.entitlements";
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphone*]" = "*/Compositor/macOS/*";
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]" = "*/Compositor/iPadOS/*";
+				"INFOPLIST_FILE[sdk=iphone*]" = "Config/Info-iPadOS.plist";
+				"INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription[sdk=iphone*]" = "Compositor saves exported images to your photo library.";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphone*]" = NO;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphone*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphone*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphone*]" = UIStatusBarStyleLightContent;
+				"INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad[sdk=iphone*]" = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 2;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/Compositor.entitlements;
@@ -530,6 +572,12 @@
 		8F311FC1304F03BC0017D14F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphone*]" = "CompositorUITests.swift CompositorUITestsLaunchTests.swift";
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]" = "iPad*.swift";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				TARGETED_DEVICE_FAMILY = 2;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 40;
 				DEAD_CODE_STRIPPING = YES;
@@ -550,6 +598,12 @@
 		8F311FC2304F03BC0017D14F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphone*]" = "CompositorUITests.swift CompositorUITestsLaunchTests.swift";
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]" = "iPad*.swift";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				TARGETED_DEVICE_FAMILY = 2;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 40;
 				DEAD_CODE_STRIPPING = YES;

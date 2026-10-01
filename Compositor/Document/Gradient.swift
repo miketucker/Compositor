@@ -1,4 +1,5 @@
-import AppKit
+import CoreGraphics
+import Foundation
 
 nonisolated enum GradientStyle: String, CaseIterable, Sendable {
     case foregroundToBackground = "Foreground to Background"

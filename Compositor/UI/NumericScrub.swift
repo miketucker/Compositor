@@ -1,5 +1,7 @@
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 
 /// Makes a label or unit a drag target for the value shown in its adjacent field.
 private struct NumericScrub<Value: BinaryFloatingPoint>: ViewModifier {
@@ -20,26 +22,33 @@ private struct NumericScrub<Value: BinaryFloatingPoint>: ViewModifier {
                 switch phase {
                 case .active(_):
                     isHovering = true
-                    NSCursor.resizeLeftRight.set()
+                    Self.showResizeCursor(true)
                 case .ended:
                     isHovering = false
-                    if startValue == nil { NSCursor.arrow.set() }
+                    if startValue == nil { Self.showResizeCursor(false) }
                 }
             }
             .simultaneousGesture(DragGesture(minimumDistance: 1)
                 .onChanged { drag in
                     let start = startValue ?? value
                     if startValue == nil { startValue = start; onStart() }
-                    NSCursor.resizeLeftRight.set()
+                    Self.showResizeCursor(true)
                     var proposed = start + Value(drag.translation.width) * sensitivity
                     if let step, step > 0 { proposed = (proposed / step).rounded() * step }
                     value = min(range.upperBound, max(range.lowerBound, proposed))
                 }
                 .onEnded { _ in
                     startValue = nil
-                    (isHovering ? NSCursor.resizeLeftRight : NSCursor.arrow).set()
+                    Self.showResizeCursor(isHovering)
                     onEnd()
                 })
+    }
+
+    /// The left-right arrows over something that scrubs, on the Mac; iPad keeps its own pointer.
+    private static func showResizeCursor(_ resize: Bool) {
+        #if os(macOS)
+        (resize ? NSCursor.resizeLeftRight : NSCursor.arrow).set()
+        #endif
     }
 }
 

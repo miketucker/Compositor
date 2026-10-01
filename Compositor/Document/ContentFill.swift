@@ -1,4 +1,5 @@
-import AppKit
+import CoreGraphics
+import Foundation
 
 nonisolated enum ContentFill {
     enum Failure: LocalizedError {

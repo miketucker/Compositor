@@ -11,13 +11,14 @@ struct NavigationToolHeader: View {
         HStack(spacing: 12) {
             Text(session.tool == .hand ? "Pan" : "Zoom").font(ToolHeaderStyle.titleFont)
             if session.tool == .zoom {
+                #if os(macOS)
                 TextField("Zoom", text: $zoomText)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 72)
                     .multilineTextAlignment(.trailing)
                     .focused($editingZoom)
                     .onSubmit { releaseFocus() }
-                    .onExitCommand { releaseFocus() }
+                    .onEscape { releaseFocus() }
                     .onChange(of: editingZoom) { _, focused in if !focused { applyZoom() } }
                     .arrowSteps(editing: editingZoom, stepper: stepper,
                                 value: { Double(zoomText.filter { $0.isNumber || $0 == "." }) ?? Double(session.viewport.zoom * 100) },
@@ -28,6 +29,13 @@ struct NavigationToolHeader: View {
                     .unitSuffix("%", scrubValue: Binding<Double>(
                         get: { Double(session.viewport.zoom * 100) }, set: { step($0) }),
                         sensitivity: 1, range: 0.1...3200)
+                #else
+                HeaderValue(title: "Zoom", value: Binding(get: { Double(session.viewport.zoom * 100) },
+                                                          set: { if !session.isProjectBusy { session.zoom(to: CGFloat($0 / 100)) } }),
+                            range: 0.1...3200, unit: "%", step: 10, slider: 1...3200, logarithmic: true, fractionDigits: 1)
+                    .disabled(session.document == nil || session.showsBusy)
+                ToolOptionButton(session: session)
+                #endif
             }
             Spacer()
         }
