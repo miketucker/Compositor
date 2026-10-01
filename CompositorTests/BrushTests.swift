@@ -144,11 +144,11 @@ struct BrushTests {
         let before = session.document
         session.beginBrush(at: CGPoint(x: 40, y: 40))
         let live = try preview(try #require(session.brushStroke), canvas: session.document!.size)
-        #expect(try pixel(live, x: 40, y: 40)[3] > 230)
-        // 0% hardness feathers along a Gaussian across the whole radius: about half
-        // strength at half radius, faint near the rim, nothing beyond it.
+        #expect(try pixel(live, x: 40, y: 40)[3] > 190)
+        // An isolated soft dab has a narrow center and faint outer coverage, leaving
+        // room for overlapping dabs to build up without hardening the stroke's rim.
         let half = try pixel(live, x: 50, y: 40)[3]
-        #expect(half > 95 && half < 140)
+        #expect(half > 5 && half < 20)
         #expect(try pixel(live, x: 57, y: 40)[3] < 40)
         #expect(try pixel(live, x: 64, y: 40)[3] == 0)
         session.cancelBrush()
@@ -174,7 +174,7 @@ struct BrushTests {
             let expected = try pixel(live, x: x, y: 40)[3]
             #expect(abs(try pixel(result, x: x, y: 40)[3] - expected) <= 1)
         }
-        #expect(try pixel(result, x: 40, y: 40)[3] < 25)
+        #expect(try pixel(result, x: 40, y: 40)[3] < 65)
         #expect(session.activeLayer?.asset?.image === source)
         #expect(session.activeLayer?.mask?.asset.image.width == 80)
         session.maskPaintWhite = true
@@ -184,7 +184,7 @@ struct BrushTests {
         #expect(try pixel(try await render(session), x: 40, y: 40)[3] == 255)
         session.undo()
         #expect(session.isMaskSelected)
-        #expect(try pixel(try await render(session), x: 40, y: 40)[3] < 25)
+        #expect(try pixel(try await render(session), x: 40, y: 40)[3] < 65)
         session.redo()
         #expect(session.isMaskSelected)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("Brush-\(UUID()).comp")

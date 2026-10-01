@@ -34,6 +34,39 @@ struct BrushIntersectionTests {
         Int(context.data!.assumingMemoryBound(to: UInt8.self)[y * context.bytesPerRow + x * 4 + 3])
     }
 
+    @Test func softestStrokeHasABroadFeatherInBothRenderers() throws {
+        for useGPU in [true, false] {
+            let paint = try stroke(diameter: 240, useGPU: useGPU)
+            try trace(paint, [CGPoint(x: 100, y: 400), CGPoint(x: 700, y: 400)])
+            let image = try raster(paint)
+            #expect(alpha(image, 400, 400) >= 250)
+            #expect((220...250).contains(alpha(image, 400, 430)))
+            #expect((100...155).contains(alpha(image, 400, 460)))
+            #expect((15...50).contains(alpha(image, 400, 490)))
+            #expect(alpha(image, 400, 514) < 8)
+            #expect(alpha(image, 400, 521) == 0)
+            // The feather stays smooth through the tile boundary at row 512.
+            let profile = (400...521).map { alpha(image, 400, $0) }
+            for (index, pair) in zip(profile, profile.dropFirst()).enumerated() {
+                #expect(pair.0 + 1 >= pair.1, "GPU \(useGPU), row \(400 + index): \(pair)")
+            }
+            if ProcessInfo.processInfo.environment["BRUSH_BENCHMARK"] == "1" {
+                // Show black paint on white, like the reference, using the rendered coverage.
+                let bytes = image.data!.assumingMemoryBound(to: UInt8.self)
+                for index in stride(from: 0, to: image.bytesPerRow * image.height, by: 4) {
+                    bytes[index] = 0; bytes[index + 1] = 0; bytes[index + 2] = 0
+                }
+                let example = try BrushRaster.context(width: 800, height: 300, mask: false)
+                example.setFillColor(gray: 1, alpha: 1)
+                example.fill(CGRect(x: 0, y: 0, width: 800, height: 300))
+                example.draw(try #require(image.makeImage()), in: CGRect(x: 0, y: -250, width: 800, height: 800))
+                let rendered = try #require(example.makeImage())
+                let png = try #require(NSBitmapImageRep(cgImage: rendered).representation(using: .png, properties: [:]))
+                try png.write(to: URL(fileURLWithPath: "/tmp/compositor-softest-brush-\(useGPU ? "gpu" : "software").png"))
+            }
+        }
+    }
+
     @Test func selfCrossingsBlendInsteadOfTakingTheStrongestEdge() throws {
         for useGPU in [true, false] {
             let vertical = try stroke(useGPU: useGPU), horizontal = try stroke(useGPU: useGPU), crossing = try stroke(useGPU: useGPU)
@@ -42,7 +75,7 @@ struct BrushIntersectionTests {
             try trace(crossing, [CGPoint(x: 400, y: 100), CGPoint(x: 400, y: 700), CGPoint(x: 700, y: 700),
                                  CGPoint(x: 700, y: 400), CGPoint(x: 100, y: 400)])
             let v = try raster(vertical), h = try raster(horizontal), c = try raster(crossing)
-            for offset in [45, 48, 51] {
+            for offset in [24, 30, 36] {
                 let a = alpha(v, 400 + offset, 400 + offset), b = alpha(h, 400 + offset, 400 + offset)
                 let actual = alpha(c, 400 + offset, 400 + offset)
                 let expected = 255 - (255 - a) * (255 - b) / 255

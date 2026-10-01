@@ -100,7 +100,8 @@ float brushCoverage(float distanceSquared, float radius, constant BrushUniforms 
         return clamp((radius - distance) / u.canvas.z + 0.5f, 0.0f, 1.0f);
     }
     float t = clamp((distance / radius - u.geometry.w) / (1.0f - u.geometry.w), 0.0f, 1.0f);
-    return max(0.0f, (exp(-2.5f * t * t) - exp(-2.5f)) / (1.0f - exp(-2.5f)));
+    constexpr float k = \(Float(BrushRaster.falloffExponent))f;
+    return max(0.0f, (exp(-k * t) - exp(-k)) / (1.0f - exp(-k)));
 }
 
 // A hard tip's coverage from one segment: the radius and strength where p is nearest along it.

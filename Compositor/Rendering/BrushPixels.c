@@ -1,4 +1,18 @@
 #include "BrushPixels.h"
+#include <math.h>
+
+void brush_soft_tip(uint8_t *bytes, size_t size, size_t stride, double hardness, double exponent) {
+    float radius = (float)size / 2, h = (float)hardness, k = (float)exponent;
+    float edge = expf(-k), scale = 255 / (1 - edge);
+    for (size_t y = 0; y < size; ++y) {
+        float dy = (float)y + 0.5f - radius;
+        for (size_t x = 0; x < size; ++x) {
+            float dx = (float)x + 0.5f - radius;
+            float u = fminf(1, fmaxf(0, (sqrtf(dx * dx + dy * dy) / radius - h) / (1 - h)));
+            bytes[y * stride + x] = (uint8_t)lroundf(fmaxf(0, (expf(-k * u) - edge) * scale));
+        }
+    }
+}
 
 void brush_alpha_bounds(const uint8_t *bytes, size_t width, size_t height, size_t stride, size_t bounds[4]) {
     size_t left = width, right = 0, top = height, bottom = 0;

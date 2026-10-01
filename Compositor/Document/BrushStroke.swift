@@ -125,11 +125,12 @@ nonisolated enum BrushRaster {
         context.fill(bounds)
         context.restoreGState()
     }
-    /// Soft-brush falloff across the region between the hardness radius and the rim:
-    /// a normalized Gaussian that fades across the whole radius and reaches zero at the rim.
+    /// Soft-brush falloff between the hardness radius and the rim. A narrow exponential
+    /// tip leaves a broad feather after overlapping dabs build up along the stroke.
+    static let falloffExponent: CGFloat = 6
     static func falloff(_ u: CGFloat) -> CGFloat {
-        let k: CGFloat = 2.5
-        return max(0, (exp(-k * u * u) - exp(-k)) / (1 - exp(-k)))
+        let k = falloffExponent
+        return max(0, (exp(-k * u) - exp(-k)) / (1 - exp(-k)))
     }
     static func pixelToDocument(_ transform: LayerTransform, width: Int, height: Int) -> CGAffineTransform {
         CGAffineTransform(translationX: transform.center.x, y: transform.center.y)
@@ -271,16 +272,16 @@ final class BrushStroke {
             && scaleX > 1e-9 && abs(scaleX - scaleY) < 1e-9
         let gridDiameter = settings.diameter / scaleX
         gridTip = gpu == nil && square && gridDiameter >= 1 && gridDiameter <= Self.gridTipLimit
-            ? try Self.tip(diameter: gridDiameter, hardness: settings.hardness, falloff: falloff) : nil
+            ? try Self.tip(diameter: gridDiameter, hardness: settings.hardness) : nil
         // Drawn through the tile transform, the stamp is rendered as finely as the layer's pixels: magnified onto
         // the finer grid of a scaled-down layer, it left blocky dabs that showed once the layer was scaled back up.
         let stampDiameter = settings.diameter / min(1, scaleX, scaleY)
         stamp = gpu == nil && gridTip == nil && stampDiameter <= Self.stampLimit
-            ? try Self.tip(diameter: stampDiameter, hardness: settings.hardness, falloff: falloff) : nil
+            ? try Self.tip(diameter: stampDiameter, hardness: settings.hardness) : nil
     }
 
     /// The tip as grayscale coverage: white at full strength, fading to black at the rim.
-    private static func tip(diameter: CGFloat, hardness: CGFloat, falloff: CGGradient?) throws -> CGImage {
+    private static func tip(diameter: CGFloat, hardness: CGFloat) throws -> CGImage {
         let size = max(1, Int(diameter.rounded(.up)))
         let context = try BrushRaster.context(width: size, height: size, mask: true)
         let bounds = CGRect(x: 0, y: 0, width: CGFloat(size), height: CGFloat(size))
@@ -289,11 +290,12 @@ final class BrushStroke {
         context.setFillColor(gray: 1, alpha: 1)
         if hardness >= 1 {
             context.fillEllipse(in: bounds)
-        } else if let falloff {
-            let radius = CGFloat(size) / 2
-            let center = CGPoint(x: radius, y: radius)
-            context.drawRadialGradient(falloff, startCenter: center, startRadius: radius * hardness,
-                                       endCenter: center, endRadius: radius, options: [.drawsBeforeStartLocation])
+        } else {
+            // Gradient dithering gets amplified as dabs overlap, leaving stripes in faint
+            // coverage. Render the cached tip directly so its feather stays monotonic.
+            guard let bytes = context.data else { throw ExportError.render }
+            brush_soft_tip(bytes.assumingMemoryBound(to: UInt8.self), size, context.bytesPerRow,
+                           Double(hardness), Double(BrushRaster.falloffExponent))
         }
         guard let image = context.makeImage() else { throw ExportError.render }
         return image
