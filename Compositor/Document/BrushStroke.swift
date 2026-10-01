@@ -27,6 +27,12 @@ nonisolated struct BrushSettings: Sendable {
     var healingMode: SpotHealingMode = .contentAware
     /// What the Pencil's pressure changes along the stroke (none for a mouse or a finger, which press at full strength).
     var pressure: BrushPressure = []
+    /// How the tip lays its color: the round brush's dabs, or a dither pattern, whose own table says what pressure does.
+    var ink: BrushInk = .round
+    var patternInk: PatternInk? {
+        if case .pattern(let ink) = ink { return ink }
+        return nil
+    }
 }
 
 /// What the Pencil's pressure changes as the Brush paints: its size, its opacity, or both, from a sliver at the
@@ -217,6 +223,9 @@ final class BrushStroke {
         gpu = useGPU ? MetalBrushCoverage.shared : nil
         self.layer = layer
         isMask = mask
+        var settings = settings
+        // A pattern's pixels are painted or not: its tip is always hard.
+        if settings.patternInk != nil { settings.hardness = 1 }
         self.settings = settings
         self.canvas = CGRect(origin: .zero, size: canvas)
         // A mask on its own placement is painted in its own pixel grid; otherwise the grid is the layer's.
@@ -436,6 +445,11 @@ final class BrushStroke {
     /// The tip's radius (in document pixels) and strength at `pressure`: as set, unless the stroke follows the Pencil.
     private func tip(at pressure: CGFloat) -> (radius: Float, strength: Float) {
         let firmness = min(1, max(Self.minimumPressure, pressure.isFinite ? pressure : 1))
+        // A pattern brush's strength is its density, and both that and its size come from its own table.
+        if let ink = settings.patternInk {
+            let dynamics = ink.dynamics.at(firmness)
+            return (Float(settings.diameter / 2) * dynamics.size, dynamics.density)
+        }
         let radius = settings.diameter / 2 * (settings.pressure.contains(.size) ? firmness : 1)
         return (Float(radius), Float(settings.pressure.contains(.opacity) ? firmness : 1))
     }
@@ -649,6 +663,8 @@ final class BrushStroke {
                     // While painting, the area to heal shows as a dark wash, as in Photoshop;
                     // `heal()` rebuilds it from its surroundings when the stroke ends.
                     BrushRaster.fill(Self.healingWash, coverage: mask, in: local, alpha: 0.45, context: tile.context)
+                } else if let ink = settings.patternInk {
+                    try paintPattern(ink, coverage: coverage, tile: tile)
                 } else if settings.erasing, !isMask {
                     // Erasing takes the coverage out of the layer's alpha, leaving the pixels under it transparent.
                     tile.context.saveGState()
@@ -686,6 +702,41 @@ final class BrushStroke {
                                    width: pixels.width / scaleX, height: pixels.height / scaleY))
         clonePieces[key] = piece
         return piece
+    }
+
+    /// A pattern brush's tile: the pattern's pixels where the stroke is dense enough for them, in the paint color (or
+    /// cleared, erasing), and its gaps in the background color where the ink paints them.
+    private func paintPattern(_ ink: PatternInk, coverage: CGContext, tile: Tile) throws {
+        let local = CGRect(origin: .zero, size: tile.rect.size)
+        let width = Int(local.width), height = Int(local.height)
+        let on = try BrushRaster.context(width: width, height: height, mask: true)
+        let off = try BrushRaster.context(width: width, height: height, mask: true)
+        guard let covered = coverage.data, let onBytes = on.data, let offBytes = off.data,
+              on.bytesPerRow == coverage.bytesPerRow, off.bytesPerRow == coverage.bytesPerRow else { throw ExportError.render }
+        let toDocument = pixelToDocument.translatedBy(x: tile.rect.minX, y: tile.rect.minY)
+        let mapping = [toDocument.a, toDocument.b, toDocument.c, toDocument.d, toDocument.tx, toDocument.ty].map(Double.init)
+        // Drawn without the GPU, the coverage is the tip's shape alone, at the density a full press gives.
+        let constant = gpu == nil ? ink.dynamics.at(1).density : -1
+        ink.pattern.thresholds.withUnsafeBufferPointer { thresholds in
+            dither_pattern_masks(covered.assumingMemoryBound(to: UInt8.self), onBytes.assumingMemoryBound(to: UInt8.self),
+                                 offBytes.assumingMemoryBound(to: UInt8.self), width, height, coverage.bytesPerRow,
+                                 thresholds.baseAddress, Int32(ink.pattern.width), Int32(ink.pattern.height), mapping, constant)
+        }
+        guard let painted = on.makeImage(), let gaps = off.makeImage() else { throw ExportError.render }
+        if settings.erasing, !isMask {
+            tile.context.saveGState()
+            tile.context.setBlendMode(.destinationOut)
+            BrushRaster.fill(Self.eraseColor, coverage: painted, in: local, alpha: settings.opacity, context: tile.context)
+            tile.context.restoreGState()
+            return
+        }
+        if ink.colors == .foregroundToBackground {
+            let background = ink.background
+            let color = isMask ? CGColor(gray: background.red, alpha: 1)
+                : CGColor(srgbRed: background.red, green: background.green, blue: background.blue, alpha: 1)
+            BrushRaster.fill(color, coverage: gaps, in: local, alpha: settings.opacity, context: tile.context)
+        }
+        BrushRaster.fill(paintColor, coverage: painted, in: local, alpha: settings.opacity, context: tile.context)
     }
 
     private static let eraseColor = CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)

@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var windowWidth: CGFloat = 1180
     /// The editor is wider than it is tall: on iPad, the tool rail has room for two columns.
     @State private var landscape = false
+    @Environment(\.scenePhase) private var scenePhase
     /// A layer dragged from this canvas's own tab has nowhere to go, so the canvas doesn't light up for it.
     private var acceptsDrop: Bool {
         guard let workspace else { return true }
@@ -201,6 +202,12 @@ struct ContentView: View {
     var body: some View {
         editorChrome
         .modifier(ColorPickerPresenter(session: session))
+        // Plugins load as the editor opens, and again as the app comes back with something changed in the Plugins
+        // folder: one dropped in from the Finder or Files.
+        .task { await PluginRegistry.shared.reloadIfChanged() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await PluginRegistry.shared.reloadIfChanged() } }
+        }
         .onChange(of: session.levels == nil) { _, closed in
             if closed { levelsPanel.close() }
             else {

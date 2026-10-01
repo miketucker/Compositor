@@ -24,6 +24,7 @@ final class MetalBrushCoverage {
         var geometry: SIMD4<Float>
         var canvas: SIMD4<Float>
         var counts: SIMD4<UInt32>
+        var ink: SIMD4<UInt32>
     }
     private init() throws {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue(),
@@ -49,13 +50,15 @@ final class MetalBrushCoverage {
         }), let command = queue.makeCommandBuffer(), let encoder = command.makeComputeCommandEncoder() else { throw ExportError.render }
         encoder.setComputePipelineState(pipeline)
         encoder.setBuffer(buffer, offset: 0, index: 3)
+        let pattern = settings.patternInk
         for (tile, rect, _) in tiles {
             let origin = rect.origin.applying(mapping)
             var uniforms = Uniforms(
                 mapping: SIMD4(Float(mapping.a), Float(mapping.b), Float(mapping.c), Float(mapping.d)),
                 geometry: SIMD4(Float(origin.x), Float(origin.y), Float(settings.diameter / 2), Float(settings.hardness)),
                 canvas: SIMD4(Float(canvas.width), Float(canvas.height), Float(max(0.001, min(hypot(mapping.a, mapping.b), hypot(mapping.c, mapping.d)))), Float(max(0.25, settings.diameter * BrushStroke.spacingFraction(settings.hardness)))),
-                counts: SIMD4(UInt32(rect.width), UInt32(rect.height), UInt32(settled.count), UInt32(segments.count)))
+                counts: SIMD4(UInt32(rect.width), UInt32(rect.height), UInt32(settled.count), UInt32(segments.count)),
+                ink: SIMD4(pattern == nil ? 0 : 1, pattern?.colors == .foregroundToBackground ? 1 : 0, 0, 0))
             encoder.setBuffer(tile.permanent, offset: 0, index: 0)
             encoder.setBuffer(tile.preview, offset: 0, index: 1)
             encoder.setBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
@@ -83,6 +86,7 @@ struct BrushUniforms {
     float4 geometry; // document origin of tile, radius as set, hardness
     float4 canvas; // width, height, antialias width, deposition spacing at the radius as set
     uint4 counts; // tile width, height, committed segment count, total segment count
+    uint4 ink; // a pattern brush, and whether its latest segment wins over earlier ones rather than the densest
 };
 
 struct BrushSegment {
@@ -106,6 +110,16 @@ float segmentCoverage(float2 p, BrushSegment segment, constant BrushUniforms &u)
     float2 delta = p - (segment.ends.xy + t * v);
     float radius = mix(segment.dynamics.x, segment.dynamics.y, t);
     return mix(segment.dynamics.z, segment.dynamics.w, t) * brushCoverage(dot(delta, delta), radius, u);
+}
+
+// A pattern brush's tip on one segment, which has no soft or antialiased edge: 1 + the density where p is nearest along
+// it, for pixels whose centers the tip reaches, and 0 for the rest.
+float segmentPattern(float2 p, BrushSegment segment) {
+    float2 v = segment.ends.zw - segment.ends.xy;
+    float t = clamp(dot(p - segment.ends.xy, v) / max(dot(v, v), 1e-12f), 0.0f, 1.0f);
+    float2 delta = p - (segment.ends.xy + t * v);
+    float radius = mix(segment.dynamics.x, segment.dynamics.y, t);
+    return dot(delta, delta) <= radius * radius ? 1.0f + mix(segment.dynamics.z, segment.dynamics.w, t) : 0.0f;
 }
 
 // Integrate paint deposition by distance travelled, not pointer-event count or
@@ -165,6 +179,25 @@ kernel void continuousBrush(device float *permanent [[buffer(0)]],
     float2 local = float2(pixel) + 0.5f;
     float2 p = u.geometry.xy + local.x * u.mapping.xy + local.y * u.mapping.zw;
     if (any(p < 0.0f) || any(p >= u.canvas.xy)) { preview[index] = 0; return; }
+    if (u.ink.x != 0) {
+        // A pattern brush keeps the density laid at each pixel it reaches, as 1 + density so 0 is outside: the
+        // densest, or the latest, as the brush paints its gaps or not. The pattern itself is applied as the tile is
+        // painted.
+        bool latest = u.ink.y != 0;
+        float value = permanent[index], tail = 0.0f;
+        for (uint i = 0; i < u.counts.z; ++i) {
+            float here = segmentPattern(p, segments[i]);
+            if (here > 0.0f) value = latest ? here : max(value, here);
+        }
+        for (uint i = u.counts.z; i < u.counts.w; ++i) {
+            float here = segmentPattern(p, segments[i]);
+            if (here > 0.0f) tail = latest ? here : max(tail, here);
+        }
+        permanent[index] = value;
+        float shown = tail > 0.0f && (latest || tail > value) ? tail : value;
+        preview[index] = shown > 0.0f ? uchar(1.0f + round(254.0f * clamp(shown - 1.0f, 0.0f, 1.0f))) : 0;
+        return;
+    }
     if (u.geometry.w >= 1.0f) {
         // Hard tips already have a solid interior. Preserve pixel-edge antialiasing.
         float settled = 0.0f, tail = 0.0f;

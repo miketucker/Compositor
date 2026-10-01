@@ -1,3 +1,4 @@
+import LinkPresentation
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -150,27 +151,70 @@ struct ExportedFile: FileDocument {
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
 }
 
-/// The flattened image, as the Share button hands it on: rendered once something asks for it, as a PNG named after
-/// the project, which the share sheet can save to Photos or Files, send with AirDrop or Messages, or copy.
-nonisolated struct SharedImage: Transferable {
-    let session: EditorSession
-    let name: String
-
-    static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(exportedContentType: .png) { image in
-            SentTransferredFile(try await image.render())
+/// The system's share sheet, for the Share button's PNG, which it can save to Photos or Files, send with AirDrop or
+/// Messages, or copy. It's handed the finished file. Handed one still to be made, it held up the app for seconds as it
+/// opened: it waits for the file on the main thread, which the file needed in order to be made.
+enum ShareSheet {
+    /// Shows the sheet for the file at `url`, headed `title` and pointing at `anchor`, and returns once it's put away.
+    static func present(_ url: URL, title: String, from anchor: UIView?) async {
+        let window = anchor?.window ?? UIApplication.shared.connectedScenes.lazy.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+        guard let window, var presenter = window.rootViewController else { return }
+        while let next = presenter.presentedViewController { presenter = next }
+        let sheet = UIActivityViewController(activityItems: [SharedFile(url: url, title: title)], applicationActivities: nil)
+        if let popover = sheet.popoverPresentationController {
+            if let anchor, anchor.window != nil {
+                popover.sourceView = anchor
+                popover.sourceRect = anchor.bounds
+            } else {
+                // The toolbar's trailing end, where the button is.
+                popover.sourceView = window
+                popover.sourceRect = CGRect(x: window.bounds.maxX - 260, y: window.safeAreaInsets.top, width: 1, height: 44)
+            }
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            var finished = false
+            sheet.completionWithItemsHandler = { _, _, _, _ in
+                guard !finished else { return }
+                finished = true
+                continuation.resume()
+            }
+            presenter.present(sheet, animated: true)
         }
     }
+}
 
-    @MainActor private func render() async throws -> URL {
-        guard let snapshot = session.projectSnapshot() else { throw CocoaError(.fileReadUnknown) }
-        let data = try await ImageExporter.shared.pngData(snapshot)
-        let folder = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appending(path: name).appendingPathExtension("png")
-        try data.write(to: url)
-        return url
+/// The file the share sheet hands on, with what its header shows: the project's name, over the file's, beside the
+/// image itself.
+private final class SharedFile: NSObject, UIActivityItemSource {
+    let url: URL
+    let title: String
+    init(url: URL, title: String) { self.url = url; self.title = title }
+
+    func activityViewControllerPlaceholderItem(_ controller: UIActivityViewController) -> Any { url }
+    func activityViewController(_ controller: UIActivityViewController, itemForActivityType type: UIActivity.ActivityType?) -> Any? { url }
+    func activityViewControllerLinkMetadata(_ controller: UIActivityViewController) -> LPLinkMetadata? {
+        let metadata = LPLinkMetadata()
+        metadata.title = title
+        metadata.originalURL = url
+        metadata.iconProvider = NSItemProvider(contentsOf: url)
+        return metadata
     }
+}
+
+/// What the share sheet points at: a view behind the Share button.
+final class ShareAnchor {
+    weak var view: UIView?
+}
+
+struct ShareAnchorView: UIViewRepresentable {
+    let anchor: ShareAnchor
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        anchor.view = view
+        return view
+    }
+    func updateUIView(_ view: UIView, context: Context) { anchor.view = view }
 }
 
 extension View {

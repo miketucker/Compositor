@@ -13,6 +13,7 @@ struct EditorToolbar: ViewModifier {
     private var title: String { workspace?.current.title ?? "Untitled" }
     @State private var renaming = false
     @State private var draftName = ""
+    @State private var shareAnchor = ShareAnchor()
 
     func body(content: Content) -> some View {
         content
@@ -59,10 +60,11 @@ struct EditorToolbar: ViewModifier {
                         .disabled(!session.canRedo)
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    ShareLink(item: SharedImage(session: session, name: title), preview: SharePreview(title)) {
+                    Button { Task { await projects?.share(named: title, from: shareAnchor.view) } } label: {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
-                    .disabled(session.document == nil)
+                    .background(ShareAnchorView(anchor: shareAnchor))
+                    .disabled(session.document == nil || session.showsBusy)
                     .accessibilityIdentifier("shareImage")
                     fileMenu
                     editMenu
@@ -102,6 +104,7 @@ struct EditorToolbar: ViewModifier {
             Button("Trim…") { Task { await projects?.trim() } }.disabled(session.document == nil)
             Divider()
             Button("Keyboard Shortcuts…", systemImage: "keyboard") { ShortcutSettings.shared.show() }
+            Button("Plugins…", systemImage: "puzzlepiece.extension") { PluginsPanel.shared.show() }
         } label: { Label("File", systemImage: "doc") }
     }
 

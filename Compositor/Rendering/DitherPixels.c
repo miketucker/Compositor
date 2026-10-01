@@ -372,3 +372,25 @@ void dither_glow(uint8_t *rgba, const uint8_t *glow, size_t width, size_t height
         }
     });
 }
+
+void dither_pattern_masks(const uint8_t *coverage, uint8_t *on, uint8_t *off, size_t width, size_t height, size_t stride,
+                          const float *thresholds, int patternWidth, int patternHeight, const double *mapping, float constant) {
+    for (size_t y = 0; y < height; ++y) {
+        const uint8_t *in = coverage + y * stride;
+        uint8_t *lit = on + y * stride, *gap = off + y * stride;
+        for (size_t x = 0; x < width; ++x) {
+            int inside = constant >= 0 ? in[x] >= 128 : in[x] > 0;
+            if (!inside) { lit[x] = 0; gap[x] = 0; continue; }
+            float density = constant >= 0 ? constant : (float)(in[x] - 1) / 254.0f;
+            // The document pixel under this one's center.
+            double cx = (double)x + 0.5, cy = (double)y + 0.5;
+            long u = (long)floor(mapping[0] * cx + mapping[2] * cy + mapping[4]) % patternWidth;
+            long v = (long)floor(mapping[1] * cx + mapping[3] * cy + mapping[5]) % patternHeight;
+            if (u < 0) u += patternWidth;
+            if (v < 0) v += patternHeight;
+            int painted = density >= thresholds[v * patternWidth + u];
+            lit[x] = painted ? 255 : 0;
+            gap[x] = painted ? 0 : 255;
+        }
+    }
+}

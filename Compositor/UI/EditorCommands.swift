@@ -185,6 +185,7 @@ struct EditorCommands: Commands {
         CommandGroup(after: .pasteboard) {
             Divider()
             Button("Keyboard Shortcuts…") { ShortcutSettings.shared.show() }
+            Button("Plugins…") { PluginsPanel.shared.show() }
             // Photoshop's fill shortcuts; in a text field they keep their text meaning.
             Button("Fill with Foreground Color") {
                 if TextEditing.isActive { TextEditing.deleteWordBackward() }

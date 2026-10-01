@@ -176,6 +176,10 @@ extension CanvasView {
     }
 
     override var canBecomeFirstResponder: Bool { true }
+    /// The canvas takes a hardware keyboard's keys but never typing. Holding the keys with no input view of its own, it
+    /// had iPadOS raise the on-screen keyboard whenever a menu opened over it; an empty one keeps the keyboard down.
+    override var inputView: UIView? { Self.noKeyboard }
+    private static let noKeyboard = UIView(frame: .zero)
 
     override func layoutSubviews() {
         super.layoutSubviews()

@@ -7,8 +7,9 @@ final class iPadUITests: XCTestCase {
     @MainActor
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
-        // Each test starts from the welcome screen, not the projects the last one left open.
-        app.launchArguments += ["-reopensProjects", "NO"]
+        // Each test starts from the welcome screen, not the projects the last one left open, and with the round brush,
+        // whatever brush the last one chose.
+        app.launchArguments += ["-reopensProjects", "NO", "-tool.brushKind", ""]
         app.launch()
         return app
     }
@@ -109,8 +110,11 @@ final class iPadUITests: XCTestCase {
     func testShareOffersTheImage() throws {
         let app = launch()
         newCanvas(app)
+        let started = Date()
         app.buttons["shareImage"].tap()
         XCTAssertTrue(app.otherElements["ActivityListView"].waitForExistence(timeout: 10))
+        // Handed an image still to be made, the sheet held the app up for seven seconds or more as it opened.
+        XCTAssertLessThan(Date().timeIntervalSince(started), 4, "The sheet opens without a wait")
         XCTAssertTrue(app.cells["Save Image"].exists, "A PNG, which Photos can take")
         keep(app, "Share sheet")
     }
@@ -205,6 +209,62 @@ final class iPadUITests: XCTestCase {
         XCTAssertEqual(canvas.frame, before)
     }
 
+    /// The built-in Dither Brush plugin's brush, chosen from the Brush's brush menu, with its options in the bar and
+    /// in Full Screen Canvas's.
+    @MainActor
+    func testDitherBrush() throws {
+        let app = launch()
+        newCanvas(app)
+        app.buttons["Brush (B) · Eraser (E)"].tap()
+        let kind = app.buttons["brushKind"]
+        XCTAssertTrue(kind.waitForExistence(timeout: 5), "The plugin's brush gives the Brush a brush menu")
+        kind.tap()
+        app.buttons["Dither"].tap()
+        XCTAssertEqual(kind.value as? String, "Dither")
+        let pattern = app.buttons["plugin.pattern"]
+        XCTAssertTrue(pattern.waitForExistence(timeout: 5))
+        // Whatever pattern it was left on, it takes the one chosen.
+        for name in ["Bayer 4 × 4", "Checker"] {
+            pattern.tap()
+            app.buttons[name].tap()
+            XCTAssertEqual(pattern.value as? String, name)
+        }
+        pattern.tap()
+        keep(app, "Patterns")
+        app.buttons["Checker"].tap()
+        let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.4))
+        start.press(forDuration: 0.05, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)))
+        keep(app, "A dithered stroke")
+
+        // The bar runs past the edge in portrait: it scrolls along to the Pressure button.
+        let pressure = app.buttons["pluginPressure"]
+        let screen = app.windows.firstMatch.frame
+        for _ in 0..<4 where !screen.contains(pressure.frame) { pattern.swipeLeft() }
+        pressure.tap()
+        XCTAssertTrue(app.switches["plugin.pressureDensity"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.sliders["plugin.lightest"].exists)
+        keep(app, "Pressure")
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.9)).tap()
+        XCTAssertFalse(app.switches["plugin.pressureDensity"].waitForExistence(timeout: 1))
+
+        // Mid-drawing, its pattern and density are in the full-screen bar.
+        app.buttons["fullScreenCanvas"].tap()
+        let options = app.buttons["fullScreenToolOptions"]
+        XCTAssertTrue(options.waitForExistence(timeout: 5))
+        if options.label == "Show tool options" { options.tap() }
+        XCTAssertTrue(app.sliders["fullScreenDensity"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["plugin.pattern"].exists)
+        keep(app, "Full screen dither options")
+        app.buttons["exitFullScreen"].tap()
+
+        // Back to the round brush, which leaves the plugin's options out.
+        XCTAssertTrue(kind.waitForExistence(timeout: 5))
+        for _ in 0..<4 where !screen.contains(kind.frame) { app.buttons["plugin.pattern"].swipeRight() }
+        kind.tap()
+        app.buttons["Round"].tap()
+        XCTAssertFalse(app.buttons["plugin.pattern"].waitForExistence(timeout: 1))
+    }
+
     @MainActor
     func testZoomMenu() throws {
         let app = launch()
@@ -218,6 +278,8 @@ final class iPadUITests: XCTestCase {
         XCTAssertNotEqual(zoom.label, "100%", "A new canvas fits at less than its full size")
         let fitted = zoom.label
         app.buttons["zoomMenu"].tap()
+        // The canvas holds the keys, and a menu opening over it once brought the on-screen keyboard up with it.
+        XCTAssertEqual(app.keyboards.count, 0, "No keyboard for a menu")
         // Zoom In leaves the menu open, to step again.
         app.buttons["Zoom In"].tap()
         app.buttons["Zoom In"].tap()

@@ -25,6 +25,8 @@ extension CanvasPointer {
     init(_ event: NSEvent, in view: NSView) {
         self.init(location: view.convert(event.locationInWindow, from: nil), modifierFlags: KeyModifiers(event.modifierFlags),
                   clickCount: event.type == .leftMouseDown || event.type == .leftMouseUp ? event.clickCount : 1, event: event)
+        // A drawing tablet's pen says how firmly it presses; a mouse or trackpad presses at full.
+        if event.subtype == .tabletPoint, event.type != .mouseMoved { pressure = CGFloat(event.pressure) }
     }
 }
 

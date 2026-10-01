@@ -209,9 +209,16 @@ final class EditorSession {
     var brushPressure = BrushPressure(rawValue: ToolDefaults.int("brushPressure", BrushPressure.size.rawValue)) {
         didSet { ToolDefaults.set(brushPressure.rawValue, "brushPressure") }
     }
+    /// The Brush's brush: nil for its own round one, or a plugin's (see `PluginRegistry`), by id.
+    var brushKind: String? = { let kind = ToolDefaults.string("brushKind", ""); return kind.isEmpty ? nil : kind }() {
+        didSet { ToolDefaults.set(brushKind ?? "", "brushKind") }
+    }
+    /// The plugin brush the Brush paints with, while its plugin is there and on.
+    var pluginBrush: PluginBrush? { PluginRegistry.shared.brush(brushKind) }
     /// The tool rail's icon, which follows the mode a tool is in.
     func symbol(for tool: NavigationTool) -> String {
-        tool == .brush && brushMode == .erase ? "eraser" : tool.symbol
+        guard tool == .brush else { return tool.symbol }
+        return brushMode == .erase ? "eraser" : pluginBrush?.symbol ?? tool.symbol
     }
     /// The Magic tool's two modes: Wand selects by color, Object traces the object under the pointer (Tab).
     var wandMode: WandMode = .wand

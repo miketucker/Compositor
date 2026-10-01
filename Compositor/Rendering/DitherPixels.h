@@ -51,4 +51,12 @@ int dither_apply(uint8_t *rgba, size_t width, size_t height, size_t stride, cons
 void dither_dots(uint8_t *rgba, size_t width, size_t height, size_t stride, int block, const uint8_t *gap);
 // Adds `glow` (premultiplied RGBA, same layout) over the pixels at `amount`, never past their own alpha.
 void dither_glow(uint8_t *rgba, const uint8_t *glow, size_t width, size_t height, size_t stride, float amount);
+// A pattern brush's coverage, one byte a pixel (`stride` bytes a row): 0 outside the stroke, otherwise 1 + 254 × the
+// density laid there. Writes 255 to `on` where that density reaches the pattern's threshold for the pixel and to `off`
+// where it doesn't, inside the stroke, and 0 to both outside it. The pattern (`thresholds`, row by row) repeats across
+// the document's pixels, not the layer's: `mapping` (a, b, c, d, tx, ty) takes a coverage pixel's corner to document
+// pixels. With `constant` at 0 or more, the coverage is an antialiased shape instead, inside where it's at least half
+// covered, at that density throughout.
+void dither_pattern_masks(const uint8_t *coverage, uint8_t *on, uint8_t *off, size_t width, size_t height, size_t stride,
+                          const float *thresholds, int patternWidth, int patternHeight, const double *mapping, float constant);
 #endif

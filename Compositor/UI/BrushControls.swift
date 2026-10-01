@@ -2,15 +2,39 @@ import SwiftUI
 
 struct BrushControls: View {
     @Bindable var session: EditorSession
+    /// The Brush's plugin brush, if it's painting with one.
+    private var pluginBrush: PluginBrush? { session.tool == .brush ? session.pluginBrush : nil }
+    /// The bar's title: the tool. On iPad it's the brush menu too, and names a plugin's brush.
+    private var title: String {
+        switch session.tool {
+        case .spotHealing: "Spot Healing"
+        case .cloneStamp: "Clone Stamp"
+        case .blur: "Smear"
+        default:
+            #if os(macOS)
+            session.brushMode == .erase ? "Eraser" : "Brush"
+            #else
+            pluginBrush?.name ?? (session.brushMode == .erase ? "Eraser" : "Brush")
+            #endif
+        }
+    }
     var body: some View {
         HStack(spacing: 12) {
-            Text(session.tool == .spotHealing ? "Spot Healing" : session.tool == .cloneStamp ? "Clone Stamp" : session.tool == .blur ? "Smear" : session.brushMode == .erase ? "Eraser" : "Brush").font(ToolHeaderStyle.titleFont)
+            #if os(macOS)
+            Text(title).font(ToolHeaderStyle.titleFont)
+            #else
+            if session.tool == .brush, !PluginRegistry.shared.brushes.isEmpty { BrushKindPicker(session: session, title: title) }
+            else { Text(title).font(ToolHeaderStyle.titleFont) }
+            #endif
             if session.tool == .brush {
                 Picker("Mode", selection: $session.brushMode) {
                     ForEach(BrushToolMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
                 .help("Paint with the foreground color (B), or erase pixels away (E)")
+                #if os(macOS)
+                BrushKindPicker(session: session)
+                #endif
             }
             if session.tool == .blur {
                 Picker("Mode", selection: $session.blurMode) {
@@ -51,15 +75,18 @@ struct BrushControls: View {
                     session.brushSettings.diameter = value.isFinite ? min(2000, max(1, value)) : 40
                 }
                 .unitSuffix("px")
-            Text("Hardness").scrubbable(sensitivity: 0.01, value: $session.brushSettings.hardness, range: 0...1)
-            Slider(value: $session.brushSettings.hardness, in: 0...1).frame(width: 100)
-            TextField("Hardness", value: Binding<Double>(get: { Double(session.brushSettings.hardness * 100) },
-                set: { session.brushSettings.hardness = $0.isFinite ? CGFloat(min(1, max(0, $0 / 100))) : 1 }),
-                format: .number.precision(.fractionLength(0)))
-                .frame(width: 42).textFieldStyle(.roundedBorder)
-                .arrowSteps(value: { Double(session.brushSettings.hardness * 100) },
-                            change: { session.brushSettings.hardness = CGFloat(min(1, max(0, $0 / 100))) })
-                .unitSuffix("%")
+            // A plugin's pattern is painted in crisp pixels, with no soft edge to set.
+            if pluginBrush == nil {
+                Text("Hardness").scrubbable(sensitivity: 0.01, value: $session.brushSettings.hardness, range: 0...1)
+                Slider(value: $session.brushSettings.hardness, in: 0...1).frame(width: 100)
+                TextField("Hardness", value: Binding<Double>(get: { Double(session.brushSettings.hardness * 100) },
+                    set: { session.brushSettings.hardness = $0.isFinite ? CGFloat(min(1, max(0, $0 / 100))) : 1 }),
+                    format: .number.precision(.fractionLength(0)))
+                    .frame(width: 42).textFieldStyle(.roundedBorder)
+                    .arrowSteps(value: { Double(session.brushSettings.hardness * 100) },
+                                change: { session.brushSettings.hardness = CGFloat(min(1, max(0, $0 / 100))) })
+                    .unitSuffix("%")
+            }
             Text(session.tool == .blur ? "Strength" : "Opacity")
                 .scrubbable(sensitivity: 0.01, value: $session.brushSettings.opacity, range: 0.01...1)
             Slider(value: $session.brushSettings.opacity, in: 0.01...1).frame(width: 100)
@@ -88,7 +115,9 @@ struct BrushControls: View {
             }
             #else
             HeaderValue(title: "Size", value: setting(\.diameter), range: 1...2000, unit: "px", slider: 1...2000, logarithmic: true)
-            HeaderValue(title: "Hardness", value: setting(\.hardness, scale: 100), range: 0...100, unit: "%", slider: 0...100)
+            if pluginBrush == nil {
+                HeaderValue(title: "Hardness", value: setting(\.hardness, scale: 100), range: 0...100, unit: "%", slider: 0...100)
+            }
             HeaderValue(title: session.tool == .blur ? "Strength" : "Opacity", value: setting(\.opacity, scale: 100),
                         range: 1...100, unit: "%", slider: 1...100)
             if session.tool == .blur, session.blurMode == .blur {
@@ -111,9 +140,11 @@ struct BrushControls: View {
                     .help("The brush trails the pointer on a string this long, so a shaky hand still draws a smooth line")
                 #else
                 HeaderValue(title: "Smoothing", value: setting(\.smoothing), range: 0...100, slider: 0...100)
-                // The Pencil's pressure; the Mac's mouse and trackpad have none to give.
-                PressureMenu(pressure: $session.brushPressure)
+                // The Pencil's pressure; the Mac's mouse and trackpad have none to give. A plugin's brush says what
+                // pressure does among its own options.
+                if pluginBrush == nil { PressureMenu(pressure: $session.brushPressure) }
                 #endif
+                if let pluginBrush { PluginBrushOptions(brush: pluginBrush) }
             }
             if session.isMaskSelected {
                 Picker("Paint", selection: $session.maskPaintWhite) {

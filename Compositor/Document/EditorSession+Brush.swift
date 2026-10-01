@@ -68,7 +68,19 @@ extension EditorSession {
             settings.erasing = tool == .brush && brushMode == .erase && !isMaskSelected
             settings.healingMode = spotHealingMode
             settings.pressure = tool == .brush ? brushPressure : []
+            #if os(macOS)
+            // The Mac's bar has no Pressure setting for the round brush: a tablet's pressure is for plugin brushes,
+            // which say among their options what it does.
+            settings.pressure = []
+            #endif
             if isMaskSelected { settings.red = maskPaintWhite ? 1 : 0; settings.green = settings.red; settings.blue = settings.red }
+            // A plugin's brush paints in its pattern, and its own settings say what pressure does.
+            if tool == .brush, let brush = pluginBrush, var ink = PluginRegistry.shared.ink(for: brush) {
+                let background = isMaskSelected ? (maskPaintWhite ? PaletteColor.black : .white) : backgroundColor
+                ink.background = (background.red, background.green, background.blue)
+                settings.ink = .pattern(ink)
+                settings.pressure = []
+            }
             let stroke = try makeRasterEdit(for: layer, settings: settings, growsMask: tool == .brush)
             if let offset = sourceOffset {
                 guard let sample = cloneSample(document, for: stroke, offset: offset) else { return }

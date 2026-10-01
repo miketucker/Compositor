@@ -1,0 +1,41 @@
+{
+  "id": "com.compositor.dither-brush",
+  "name": "Dither Brush",
+  "version": "1.0",
+  "apiVersion": 1,
+  "author": "Compositor",
+  "description": "Paints in a dither pattern of crisp pixels, denser the harder the Pencil presses, as Aseprite's dithered pressure does.",
+  "main": "main.js",
+  "contributes": {
+    "patterns": [
+      { "id": "checker", "name": "Checker", "matrix": [[0, 1], [1, 0]] },
+      { "id": "horizontal-lines", "name": "Horizontal Lines", "matrix": [[0], [2], [1], [3]] },
+      { "id": "vertical-lines", "name": "Vertical Lines", "matrix": [[0, 2, 1, 3]] },
+      { "id": "diagonal", "name": "Diagonal", "matrix": [[0, 2, 1, 3], [3, 0, 2, 1], [1, 3, 0, 2], [2, 1, 3, 0]] },
+      { "id": "cross-hatch", "name": "Cross-Hatch", "matrix": [[0, 3, 2, 1], [3, 0, 1, 2], [2, 1, 0, 3], [1, 2, 3, 0]] },
+      { "id": "dots", "name": "Halftone Dots", "matrix": [[12, 5, 6, 13], [4, 0, 1, 7], [11, 3, 2, 8], [15, 10, 9, 14]] },
+      { "id": "blue-noise", "name": "Blue Noise", "image": "patterns/blue-noise.png" }
+    ],
+    "brushes": [
+      {
+        "id": "dither",
+        "name": "Dither",
+        "symbol": "circle.grid.3x3.fill",
+        "ink": "pattern",
+        "options": [
+          { "id": "pattern", "type": "pattern", "title": "Pattern", "default": "bayer4", "compact": true },
+          { "id": "density", "type": "slider", "title": "Density", "min": 0, "max": 100, "default": 50, "unit": "%", "compact": true,
+            "help": "How much of the pattern a full press paints" },
+          { "id": "fillGaps", "type": "toggle", "title": "Fill Gaps", "default": false,
+            "help": "Paint the pattern's gaps the background color, rather than leaving what's under them" },
+          { "id": "pressureDensity", "type": "toggle", "title": "Press Harder for Denser", "default": true, "pressure": true },
+          { "id": "pressureSize", "type": "toggle", "title": "Press Harder for Bigger", "default": false, "pressure": true },
+          { "id": "lightest", "type": "slider", "title": "Lightest", "min": 0, "max": 100, "default": 0, "unit": "%", "pressure": true,
+            "help": "Pressing more lightly than this paints nothing of the pattern" },
+          { "id": "firmest", "type": "slider", "title": "Firmest", "min": 0, "max": 100, "default": 100, "unit": "%", "pressure": true,
+            "help": "Pressing this firmly or more paints at full density" }
+        ]
+      }
+    ]
+  }
+}

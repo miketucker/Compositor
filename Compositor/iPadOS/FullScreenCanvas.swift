@@ -85,6 +85,18 @@ struct FullScreenToolbar<Header: View>: View {
             CompactSlider(title: "Size", value: setting(\.diameter), range: 1...2000, unit: "px", logarithmic: true)
             CompactSlider(title: session.tool == .blur ? "Strength" : "Opacity", value: setting(\.opacity, scale: 100),
                           range: 1...100, unit: "%")
+            // A plugin brush's own, those its plugin marks as reached for mid-drawing: the Dither brush's pattern and
+            // density.
+            if session.tool == .brush, let brush = session.pluginBrush {
+                ForEach(brush.options.filter(\.compact), id: \.id) { option in
+                    if option.kind == .slider {
+                        CompactSlider(title: option.title, value: pluginNumber(option, of: brush), range: option.range,
+                                      unit: option.unit ?? "")
+                    } else {
+                        PluginOptionControl(brush: brush, option: option)
+                    }
+                }
+            }
             // The colors the Brush paints with; healing, cloning and smearing take theirs from the image.
             if session.tool == .brush { FullScreenPalette(session: session) }
             ToolOptionButton(session: session, iconOnly: true)
@@ -93,6 +105,11 @@ struct FullScreenToolbar<Header: View>: View {
         .lineLimit(1)
         .padding(.trailing, 8)
         .disabled(session.showsBusy)
+    }
+
+    private func pluginNumber(_ option: PluginOption, of brush: PluginBrush) -> Binding<Double> {
+        Binding(get: { PluginRegistry.shared.value(option, of: brush).number ?? option.range.lowerBound },
+                set: { PluginRegistry.shared.setValue(.number($0), for: option, of: brush) })
     }
 
     /// A brush setting as the bar shows it: a percentage for those held as 0–1.
@@ -137,7 +154,7 @@ private struct CompactSlider: View {
     }
 
     private func text(for number: Double) -> String {
-        "\(Int(number.rounded()))" + (unit == "%" ? "%" : " " + unit)
+        "\(Int(number.rounded()))" + (unit == "%" || unit.isEmpty ? unit : " " + unit)
     }
 }
 

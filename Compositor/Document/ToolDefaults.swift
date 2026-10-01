@@ -39,4 +39,16 @@ nonisolated enum ToolDefaults {
         guard !isTesting else { return }
         UserDefaults.standard.set(value, forKey: prefix + key)
     }
+
+    /// Whatever's kept under `key` (a number, switch or string), for values whose kind the caller knows, such as a
+    /// plugin brush's options. Nil puts the default back.
+    static func object(_ key: String) -> Any? {
+        guard !isTesting else { return nil }
+        return UserDefaults.standard.object(forKey: prefix + key)
+    }
+
+    static func set(object value: Any?, _ key: String) {
+        guard !isTesting else { return }
+        UserDefaults.standard.set(value, forKey: prefix + key)
+    }
 }

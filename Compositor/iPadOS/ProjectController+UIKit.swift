@@ -27,6 +27,27 @@ extension ProjectController {
         workspace?.tabs.first { $0.controller === self }?.defaultName ?? "Untitled"
     }
 
+    /// The Share button: the flattened image as a PNG named `name`, the project's, for the share sheet. It's made
+    /// first, with the editor dimmed as for any export, and the sheet opens on the finished file (see `ShareSheet`).
+    func share(named name: String, from anchor: UIView?) async {
+        guard session.document != nil, begin() else { return }
+        let folder = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appending(path: name).appendingPathExtension("png")
+        do {
+            guard let snapshot = session.projectSnapshot() else { session.isProjectBusy = false; return }
+            let data = try await ImageExporter.shared.pngData(snapshot)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try data.write(to: url)
+        } catch {
+            session.isProjectBusy = false
+            await showError("Couldn’t share the image", error: error)
+            return
+        }
+        session.isProjectBusy = false
+        await ShareSheet.present(url, title: name, from: anchor)
+    }
+
     func exportPNG() async {
         guard let dialogs, session.document != nil, begin() else { return }
         defer { session.isProjectBusy = false }
