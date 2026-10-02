@@ -221,6 +221,7 @@ final class iPadUITests: XCTestCase {
         kind.tap()
         app.buttons["Dither"].tap()
         XCTAssertEqual(kind.value as? String, "Dither")
+        XCTAssertFalse(app.buttons["toolOption"].exists, "The Dither brush's bar has no Sample Color")
         let pattern = app.buttons["plugin.pattern"]
         XCTAssertTrue(pattern.waitForExistence(timeout: 5))
         // Whatever pattern it was left on, it takes the one chosen.
@@ -254,6 +255,7 @@ final class iPadUITests: XCTestCase {
         if options.label == "Show tool options" { options.tap() }
         XCTAssertTrue(app.sliders["fullScreenDensity"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["plugin.pattern"].exists)
+        XCTAssertFalse(app.buttons["toolOption"].exists, "nor its full-screen bar")
         keep(app, "Full screen dither options")
         app.buttons["exitFullScreen"].tap()
 
@@ -263,6 +265,7 @@ final class iPadUITests: XCTestCase {
         kind.tap()
         app.buttons["Round"].tap()
         XCTAssertFalse(app.buttons["plugin.pattern"].waitForExistence(timeout: 1))
+        XCTAssertTrue(app.buttons["toolOption"].waitForExistence(timeout: 5), "The round brush's Sample Color is back")
     }
 
     @MainActor

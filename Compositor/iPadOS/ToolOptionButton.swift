@@ -14,7 +14,8 @@ struct ToolOption: Equatable {
     init?(_ session: EditorSession) {
         switch session.tool {
         case .cloneStamp: (title, hint, once) = ("Set Source", "Tap where to copy from", true)
-        case .brush, .gradient: (title, hint, once) = ("Sample Color", "Tap or drag to pick the foreground color", true)
+        // A plugin's brush, the Dither brush, keeps its bar for its own options.
+        case .brush where session.pluginBrush == nil, .gradient: (title, hint, once) = ("Sample Color", "Tap or drag to pick the foreground color", true)
         case .move: (title, hint, once) = ("Move a Copy", "Drag to move a copy of the layer", true)
         case .shape: (title, hint, once) = ("From Center", "Drag out from the shape's center", false)
         case .crop: (title, hint, once) = ("From Center", "Drag to crop evenly around the center", false)

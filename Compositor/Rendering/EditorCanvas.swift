@@ -15,6 +15,11 @@ struct CanvasPointer {
     var clickCount = 1
     /// How firmly the Pencil presses, 0–1. The mouse, the trackpad and a finger press at 1.
     var pressure: CGFloat = 1
+    /// Where `pressure` is only UIKit's estimate of the Pencil's force, the index its measured force comes back
+    /// with (see `PencilPressure`); nil where it's measured or a prediction's.
+    var pressureEstimate: Int?
+    /// A Pencil's release, where it left the glass after its force had gone, which a stroke doesn't go on to.
+    var isLiftOff = false
     #if os(macOS)
     /// The mouse event it came from, which the text editor takes over when a press lands on text.
     var event: NSEvent?
@@ -136,8 +141,12 @@ final class CanvasView: PlatformView {
     var updateLink: UIUpdateLink?
     /// The drag's samples since the last frame, drawn together just before it goes to the screen.
     var pendingDrag: (events: [CanvasPointer], predicted: [CanvasPointer]) = ([], [])
+    /// The measured forces UIKit sent back since the last frame, for samples shown at their estimates.
+    var pendingCorrections: [(estimate: Int, pressure: CGFloat)] = []
     /// Frames the current stroke finished too late for; after a few, it goes back to the ordinary pace.
     var missedFrames = 0
+    /// The Pencil's pressure through the current press (see `PencilPressure`).
+    var pencilPressure = PencilPressure()
     let pencil = PencilActions()
     #endif
     /// Document point where a selection-outline drag began.
@@ -1281,9 +1290,9 @@ final class CanvasView: PlatformView {
             // Shift paints a straight line on from where the last stroke ended, as in Photoshop.
             if event.modifierFlags.contains(.shift), let from = session.shiftLineStart() {
                 session.beginBrush(at: from, pressure: event.pressure)
-                session.continueBrush(at: pixel, pressure: event.pressure)
+                session.continueBrush(at: pixel, pressure: event.pressure, estimate: event.pressureEstimate)
             } else {
-                session.beginBrush(at: pixel, pressure: event.pressure)
+                session.beginBrush(at: pixel, pressure: event.pressure, estimate: event.pressureEstimate)
             }
             brushAxisAnchor = event.modifierFlags.contains(.shift) ? pixel : nil
             brushAxisHorizontal = nil
@@ -1391,7 +1400,8 @@ final class CanvasView: PlatformView {
         brushPointer = point
         updateBrushCursor()
         if session.brushStroke != nil || session.warpStroke != nil, !session.isProjectBusy, let document = session.document {
-            session.continueBrush(at: brushPixel(for: event, documentSize: document.size), pressure: event.pressure)
+            session.continueBrush(at: brushPixel(for: event, documentSize: document.size), pressure: event.pressure,
+                                  estimate: event.pressureEstimate)
             synchronizeDisplay()
             return
         }
@@ -1489,7 +1499,8 @@ final class CanvasView: PlatformView {
         }
         brushPointer = last.location
         updateBrushCursor()
-        let samples = events.map { BrushSample(point: brushPixel(for: $0, documentSize: document.size), pressure: $0.pressure) }
+        let samples = events.map { BrushSample(point: brushPixel(for: $0, documentSize: document.size), pressure: $0.pressure,
+                                              estimate: $0.pressureEstimate) }
         // Held to a straight line with Shift, the stroke goes only where the line does.
         let ahead = last.modifierFlags.contains(.shift) ? [] : predicted.map {
             BrushSample(point: session.viewport.documentPoint(from: $0.location, documentSize: document.size), pressure: $0.pressure)
@@ -1525,7 +1536,9 @@ final class CanvasView: PlatformView {
             return
         }
         if session.brushStroke != nil || session.warpStroke != nil, !session.isProjectBusy {
-            if let document = session.document {
+            // A Pencil's lift reports where it left the glass — off the stroke's line, its force already gone: the
+            // stroke doesn't go on to it (what it was drawing fades out in `HeldBrushSamples.releaseAll`).
+            if !event.isLiftOff, let document = session.document {
                 session.continueBrush(at: session.viewport.documentPoint(from: event.location, documentSize: document.size),
                                       pressure: brushLastPressure)
             }

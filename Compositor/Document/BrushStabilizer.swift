@@ -39,6 +39,13 @@ final class BrushStabilizer {
         tip = start
     }
 
+    /// The start's measured pressure, where its force had only been estimated (see `HeldBrushSamples`): the first
+    /// point's, and the tip's too while it's still the start — once the line has run on, the tip isn't the start's.
+    func correctStart(pressure: CGFloat) {
+        points[0].pressure = pressure
+        if points.count == 1 && tipLength == 0 { tip.pressure = pressure }
+    }
+
     /// The line goes on to `sample`.
     func add(_ sample: BrushSample) {
         guard sample.point.x.isFinite, sample.point.y.isFinite else { return }

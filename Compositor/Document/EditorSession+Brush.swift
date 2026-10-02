@@ -48,7 +48,7 @@ extension EditorSession {
         }
         return stroke
     }
-    func beginBrush(at point: CGPoint, pressure: CGFloat = 1) {
+    func beginBrush(at point: CGPoint, pressure: CGFloat = 1, estimate: Int? = nil) {
         // Spot Healing and Clone Stamp rework image pixels; they have nothing to do on a mask.
         if tool == .blur, blurMode != .blur { beginWarp(at: point); return }
         guard tool == .brush || tool == .blur || (tool.isBrushTool && !isMaskSelected) else { return }
@@ -99,30 +99,71 @@ extension EditorSession {
             brushStabilizer = tool == .brush && brushSettings.smoothing > 0
                 ? BrushStabilizer(start: BrushSample(point: point, pressure: pressure), smoothing: brushSettings.smoothing,
                                   zoom: viewport.zoom) : nil
+            // Where the stroke's look follows the Pencil's pressure, samples whose force is still UIKit's estimate are
+            // only shown, held for the measured one UIKit sends back (see `HeldBrushSamples`).
+            heldBrush = stroke.followsPressure
+                ? HeldBrushSamples(start: BrushSample(point: point, pressure: pressure, estimate: estimate)) : nil
+            brushPredicted = []
             lastBrushPoint = (point, layer.id, isMaskSelected)
             brushRevision += 1
         } catch { cancelBrush(); brushError = error.localizedDescription }
     }
-    func continueBrush(at point: CGPoint, pressure: CGFloat = 1) {
+    func continueBrush(at point: CGPoint, pressure: CGFloat = 1, estimate: Int? = nil) {
         if let warpStroke { warpStroke.append(point); lastBrushPoint?.point = point; brushRevision += 1; return }
         guard brushStroke != nil else { return }
-        if brushStabilizer != nil { continueSmoothed([BrushSample(point: point, pressure: pressure)]); return }
-        do { try brushStroke?.append(point, pressure: pressure); lastBrushPoint?.point = point; brushRevision += 1 }
-        catch { cancelBrush(); brushError = error.localizedDescription }
+        continueBrush(at: [BrushSample(point: point, pressure: pressure, estimate: estimate)])
     }
     /// Several samples of the stroke at once (see `BrushStroke.append`), in the order they were taken, and where the
     /// stroke is expected to go next, drawn until the samples that follow replace it.
     func continueBrush(at samples: [BrushSample], predicted: [BrushSample] = []) {
-        guard warpStroke == nil, let brushStroke, samples.count > 1 || !predicted.isEmpty else {
-            for sample in samples { continueBrush(at: sample.point, pressure: sample.pressure) }
+        if heldBrush != nil, warpStroke == nil, brushStroke != nil {
+            // Shown but not yet the stroke's for good: what's certain is drawn; what's still estimated stays held and
+            // goes on as the provisional tail, on to where the stroke is predicted to be.
+            heldBrush?.hold(samples)
+            brushPredicted = predicted
+            draw(heldBrush?.release() ?? [], predicted: (heldBrush?.samples ?? []) + predicted)
+            if let last = samples.last { lastBrushPoint?.point = last.point }
             return
         }
+        guard warpStroke == nil, brushStroke != nil, samples.count > 1 || !predicted.isEmpty else {
+            // One by one, as they ever were.
+            for sample in samples {
+                if warpStroke != nil {
+                    warpStroke?.append(sample.point)
+                    lastBrushPoint?.point = sample.point
+                    brushRevision += 1
+                } else {
+                    draw([sample], predicted: [])
+                }
+            }
+            return
+        }
+        draw(samples, predicted: predicted)
+    }
+    /// Draws the samples the stroke takes for good, on through the provisional ones to where the Pencil is predicted
+    /// to be: down Smoothing's line when it's on, straight to the stroke otherwise.
+    private func draw(_ samples: [BrushSample], predicted: [BrushSample]) {
         if brushStabilizer != nil { continueSmoothed(samples, predicted: predicted); return }
+        guard let brushStroke else { return }
         do {
             try brushStroke.append(samples, predicted: predicted)
             if let last = samples.last { lastBrushPoint?.point = last.point }
             brushRevision += 1
         } catch { cancelBrush(); brushError = error.localizedDescription }
+    }
+    /// The measured forces UIKit sent back for samples the stroke shows at their estimates (see `HeldBrushSamples`).
+    /// With `redraw` the stretch they make certain is drawn at once; without, the samples about to arrive draw it, so
+    /// a frame renders once.
+    func correctBrush(_ corrections: [(estimate: Int, pressure: CGFloat)], redraw: Bool = true) {
+        guard brushStroke != nil, heldBrush != nil, warpStroke == nil else { return }
+        do {
+            for correction in corrections where heldBrush?.correct(correction.estimate, pressure: correction.pressure) == true {
+                try brushStroke?.correctStart(pressure: correction.pressure)
+                brushStabilizer?.correctStart(pressure: correction.pressure)
+            }
+        } catch { cancelBrush(); brushError = error.localizedDescription; return }
+        guard redraw else { return }
+        draw(heldBrush?.release() ?? [], predicted: (heldBrush?.samples ?? []) + brushPredicted)
     }
     /// With Smoothing: the line goes on to the samples, what's settled behind them is kept, and the rest, through to the
     /// Pencil and on to where it's predicted to be, is drawn until the next samples redraw it smoother.
@@ -145,6 +186,8 @@ extension EditorSession {
         warpStroke = nil
         brushStroke = nil
         brushStabilizer = nil
+        heldBrush = nil
+        brushPredicted = []
         brushRevision += 1
     }
     /// Called directly by mouse-up, before the next input event can be handled.
@@ -159,6 +202,10 @@ extension EditorSession {
         guard !isProjectBusy else { return false }
         defer { cancelBrush() }
         do {
+            // What was still held for corrections is the stroke's now: measured samples released, the rest fading
+            // out along the way the Pencil actually lifted (see `HeldBrushSamples`).
+            if let released = heldBrush?.releaseAll(), !released.isEmpty { draw(released, predicted: []) }
+            heldBrush = nil
             // Smoothing settles the rest of the line as it's shown, out to where the Pencil lifted.
             if let line = brushStabilizer?.take(finishing: true), !line.settled.isEmpty { try stroke.append(line.settled) }
             try stroke.flush()

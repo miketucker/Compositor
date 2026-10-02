@@ -189,6 +189,12 @@ final class EditorSession {
     @ObservationIgnored var lastBrushPoint: (point: CGPoint, layerID: UUID, mask: Bool)?
     /// The Brush's Smoothing for the stroke under way, which redraws the line behind the Pencil (see `BrushStabilizer`).
     @ObservationIgnored var brushStabilizer: BrushStabilizer?
+    /// Stroke samples shown but not yet the stroke's for good: a Pencil's, while their pressure is still UIKit's
+    /// estimate, released as each correction lands (see `HeldBrushSamples`). Nil where the stroke doesn't follow
+    /// pressure at all.
+    @ObservationIgnored var heldBrush: HeldBrushSamples?
+    /// Where the stroke in progress is predicted to go next, kept so a correction arriving on its own draws on to it.
+    @ObservationIgnored var brushPredicted: [BrushSample] = []
     @ObservationIgnored var maskDistortPreviewCache: MaskDistortPreviewCache?
     /// The last rounded rectangle drawn for a transform in progress, by layer, with the size it was drawn at.
     @ObservationIgnored var shapeTransformPreviewCache: [UUID: (size: CGSize, image: CGImage)] = [:]

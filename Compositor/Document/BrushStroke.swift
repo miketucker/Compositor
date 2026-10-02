@@ -48,6 +48,10 @@ nonisolated struct BrushPressure: OptionSet, Sendable, Hashable {
 nonisolated struct BrushSample: Equatable, Sendable {
     var point: CGPoint
     var pressure: CGFloat = 1
+    /// Where the pressure is only UIKit's estimate of the Pencil's force, the index its measured force comes back
+    /// with; nil once it's measured. Strokes whose look follows pressure hold such samples until then (see
+    /// `HeldBrushSamples`).
+    var estimate: Int? = nil
 }
 
 nonisolated struct BrushPatch: @unchecked Sendable {
@@ -443,6 +447,20 @@ final class BrushStroke {
 
     /// The lightest touch still paints, as a sliver.
     static let minimumPressure: CGFloat = 0.02
+
+    /// Whether the stroke's look follows the Pencil's pressure, so its samples are worth holding for the force UIKit
+    /// measures rather than drawn at what it first estimates (see `HeldBrushSamples`). Only the GPU path, which is
+    /// what carries pressure through a stroke at all.
+    var followsPressure: Bool { gpu != nil && (!settings.pressure.isEmpty || settings.patternInk != nil) }
+
+    /// The stroke's first dab gets the pressure UIKit measured where its force had only been estimated (see
+    /// `HeldBrushSamples`): set, not raised as `firmerStart` does — the Pencil may well have lifted lighter than it
+    /// first seemed to press.
+    func correctStart(pressure: CGFloat) throws {
+        guard gpu != nil, startPending, samples.count == 1 else { return }
+        pressures[0] = pressure
+        try renderContinuous(settled: [], tail: provisionalTail())
+    }
 
     /// The tip's radius (in document pixels) and strength at `pressure`: as set, unless the stroke follows the Pencil.
     private func tip(at pressure: CGFloat) -> (radius: Float, strength: Float) {

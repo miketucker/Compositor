@@ -202,20 +202,26 @@ extension CanvasView {
     // MARK: Touches
 
     /// A touch as a press on the canvas: where it is (the Pencil's precise position), with the keys held on a
-    /// keyboard, the on-screen modifier keys, or the tool bar's Option button.
-    private func pointer(for touch: UITouch, event: UIEvent?) -> CanvasPointer {
+    /// keyboard, the on-screen modifier keys, or the tool bar's Option button. `predicted` marks where UIKit only
+    /// expects it to be, which presses at the latest pressure measured rather than its own guess of one.
+    private func pointer(for touch: UITouch, event: UIEvent?, predicted: Bool = false) -> CanvasPointer {
         let location = touch.type == .pencil ? touch.preciseLocation(in: self) : touch.location(in: self)
         let keys = KeyModifiers(event?.modifierFlags ?? []).union(HeldModifiers.shared.onScreen)
             .union(HeldModifiers.shared.latched)
+        let estimate = !predicted && touch.type == .pencil && touch.estimatedPropertiesExpectingUpdates.contains(.force)
+            ? touch.estimationUpdateIndex?.intValue : nil
         return CanvasPointer(location: location, modifierFlags: keys, clickCount: max(1, touch.tapCount),
-                             pressure: Self.pressure(of: touch))
+                             pressure: pressure(of: touch, predicted: predicted, estimate: estimate),
+                             pressureEstimate: estimate)
     }
 
-    /// How firmly the Pencil presses, 0–1, eased so an everyday touch lands past the middle and a firm one reaches
-    /// the brush's full size well short of the Pencil's limit. A finger and the trackpad can't tell, so press at 1.
-    private static func pressure(of touch: UITouch) -> CGFloat {
+    /// How firmly the Pencil presses, 0–1, as the current press has followed it (see `PencilPressure`: a force that's
+    /// only an estimate, awaiting UIKit's correction, is never drawn). A finger and the trackpad can't tell, so press
+    /// at 1.
+    private func pressure(of touch: UITouch, predicted: Bool, estimate: Int?) -> CGFloat {
         guard touch.type == .pencil, touch.maximumPossibleForce > 0 else { return 1 }
-        return sqrt(min(1, touch.force / (touch.maximumPossibleForce * 0.6)))
+        if predicted { return pencilPressure.predicted }
+        return pencilPressure.sample(force: touch.force, maximum: touch.maximumPossibleForce, estimate: estimate)
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -230,6 +236,7 @@ extension CanvasView {
             return
         }
         toolTouch = touch
+        pencilPressure = PencilPressure()
         hoverLocation = nil
         beginFrames(pencil: touch.type == .pencil)
         pointerDown(pointer(for: touch, event: event))
@@ -249,7 +256,7 @@ extension CanvasView {
         // Every sample the Pencil took since the last frame, so a quick stroke keeps its curve, and where it's
         // predicted to be by the time the frame is on screen.
         let events = (event?.coalescedTouches(for: touch) ?? [touch]).map { pointer(for: $0, event: event) }
-        let predicted = (event?.predictedTouches(for: touch) ?? []).map { pointer(for: $0, event: event) }
+        let predicted = (event?.predictedTouches(for: touch) ?? []).map { pointer(for: $0, event: event, predicted: true) }
         guard updateLink?.isEnabled == true else {
             pointerDragged(events, predicted: predicted)
             return
@@ -259,13 +266,36 @@ extension CanvasView {
         pendingDrag.predicted = predicted
     }
 
+    /// UIKit's corrections of the forces it first only estimated (see `PencilPressure`), arriving a moment after the
+    /// samples they belong to: a stroke that follows pressure is drawn at the estimate, then handed each measured
+    /// force once it lands (see `HeldBrushSamples`). Drawn once a frame, with the drag's samples.
+    override func touchesEstimatedPropertiesUpdated(_ touches: Set<UITouch>) {
+        var corrections: [(estimate: Int, pressure: CGFloat)] = []
+        for touch in touches where touch.type == .pencil && touch.maximumPossibleForce > 0
+            && !touch.estimatedPropertiesExpectingUpdates.contains(.force) {
+            // Monotonic across presses, so whichever correction the guard takes is the newest (see `PencilPressure`).
+            guard let estimate = touch.estimationUpdateIndex?.intValue else { continue }
+            pencilPressure.update(force: touch.force, maximum: touch.maximumPossibleForce, estimate: estimate)
+            corrections.append((estimate, PencilPressure.eased(force: touch.force, maximum: touch.maximumPossibleForce)))
+        }
+        guard !corrections.isEmpty, toolTouch != nil else { return }
+        if updateLink?.isEnabled == true {
+            pendingCorrections += corrections
+        } else {
+            session.correctBrush(corrections)
+            synchronizeDisplay()
+        }
+    }
+
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         if let pan = fingerPan, touches.contains(pan.touch) { fingerPan = nil; return }
         guard let touch = toolTouch, touches.contains(touch) else { return }
         flushDrag()
         toolTouch = nil
         endFrames()
-        pointerUp(pointer(for: touch, event: event))
+        var up = pointer(for: touch, event: event)
+        up.isLiftOff = touch.type == .pencil
+        pointerUp(up)
         HeldModifiers.shared.canvasPressEnded()
     }
 
@@ -274,6 +304,7 @@ extension CanvasView {
         guard let touch = toolTouch, touches.contains(touch) else { return }
         toolTouch = nil
         pendingDrag = ([], [])
+        pendingCorrections = []
         endFrames()
         canvasLostFocus()
         synchronizeDisplay()
@@ -294,6 +325,7 @@ extension CanvasView {
         if toolTouch != nil {
             toolTouch = nil
             pendingDrag = ([], [])
+            pendingCorrections = []
             endFrames()
             canvasLostFocus()
             synchronizeDisplay()
@@ -309,7 +341,8 @@ extension CanvasView {
         let link = UIUpdateLink(view: self)
         link.addAction(to: .afterEventDispatch) { [weak self] _, info in
             // When the Pencil's late samples are coming, the frame waits for them rather than being drawn twice.
-            guard let self, !self.pendingDrag.events.isEmpty, !info.isLowLatencyEventDispatchConfirmed else { return }
+            guard let self, !self.pendingDrag.events.isEmpty || !self.pendingCorrections.isEmpty,
+                  !info.isLowLatencyEventDispatchConfirmed else { return }
             self.flushDrag()
         }
         link.addAction(to: .afterLowLatencyEventDispatch) { [weak self] _, _ in self?.flushDrag() }
@@ -326,18 +359,28 @@ extension CanvasView {
         return link
     }
 
-    /// Draws what the drag has done since the last frame.
+    /// Draws what the drag has done since the last frame, and hands the stroke the measured forces UIKit sent back.
     private func flushDrag() {
-        guard !pendingDrag.events.isEmpty, toolTouch != nil else { return }
+        guard !pendingDrag.events.isEmpty || !pendingCorrections.isEmpty, toolTouch != nil else { return }
         let drag = pendingDrag
+        let corrections = pendingCorrections
         pendingDrag = ([], [])
-        pointerDragged(drag.events, predicted: drag.predicted)
+        pendingCorrections = []
+        if !drag.events.isEmpty {
+            // Taken in but not drawn on its own: the samples alongside draw it, so the frame renders once.
+            session.correctBrush(corrections, redraw: false)
+            pointerDragged(drag.events, predicted: drag.predicted)
+        } else {
+            session.correctBrush(corrections)
+            synchronizeDisplay()
+        }
     }
 
     /// A press has begun: frames come at the display's full rate until it ends, and a Pencil's as soon as they can.
     private func beginFrames(pencil: Bool) {
         guard let link = updateLink else { return }
         pendingDrag = ([], [])
+        pendingCorrections = []
         missedFrames = 0
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         link.requiresContinuousUpdates = true

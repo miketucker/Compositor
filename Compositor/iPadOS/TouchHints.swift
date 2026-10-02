@@ -17,7 +17,8 @@ extension EditorSession {
                 : "Tap corners · Tap the start or double-tap to close"
         case .brush:
             return (brushMode == .erase ? "Drag to erase" : "Drag to paint")
-                + " · Hold the shortcut circle and tap for a straight line from the last stroke · Sample Color to pick a color"
+                + " · Hold the shortcut circle and tap for a straight line from the last stroke"
+                + (pluginBrush == nil ? " · Sample Color to pick a color" : "")
         case .blur:
             return blurMode == .blur ? "Drag to soften" : blurMode == .smudge ? "Drag to smudge" : "Drag to push pixels"
         case .cloneStamp:
